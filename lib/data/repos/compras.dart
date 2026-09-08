@@ -1,53 +1,63 @@
 import '../../domain/reglas/costo_compra.dart';
 import '../db/base_datos.dart';
 
-/// Un animal del lote con su costo ya calculado y con lo que hace falta para
-/// pintarlo.
+/// Un animal dentro de una compra, con su trato ya resuelto y su costo.
 class RenglonCompra {
   const RenglonCompra({
     required this.animal,
     required this.numeroArete,
+    required this.vendedor,
+    required this.forma,
+    required this.precioPorKilo,
+    required this.precioPorCabeza,
     required this.pesoCompraKg,
     required this.costo,
+    required this.tratoPropio,
   });
 
   final Animal animal;
   final String? numeroArete;
+
+  /// Ya resuelto: el propio del animal, o el heredado de la compra.
+  final String vendedor;
+  final FormaCotizacion forma;
+  final double? precioPorKilo;
+  final double? precioPorCabeza;
   final double? pesoCompraKg;
   final CostoAnimal costo;
+
+  /// Verdadero cuando este animal trae vendedor o precio propios, distintos de
+  /// los de la compra. Se marca en pantalla para que se vea de un vistazo
+  /// cuales se negociaron aparte.
+  final bool tratoPropio;
 
   String get titulo => numeroArete ?? (animal.apodo ?? 'Sin arete');
 }
 
-/// El lote completo, con sus costos repartidos.
-class LoteConCostos {
-  const LoteConCostos({
-    required this.lote,
-    required this.renglones,
-    required this.gastos,
-  });
+/// Una compra completa, con lo que se sabe y lo que falta.
+class CompraConCostos {
+  const CompraConCostos({required this.lote, required this.renglones});
 
   final LoteCompra lote;
   final List<RenglonCompra> renglones;
-  final double gastos;
 
   int get cabezas => renglones.length;
-
-  double get total => lote.montoTotal + gastos;
 
   double get kilosTotales => renglones.fold<double>(
         0,
         (s, r) => s + (r.pesoCompraKg ?? 0),
       );
 
-  /// Cuantos animales tienen un costo repartido en vez de real.
-  ///
-  /// Se muestra en pantalla porque es un hueco que se puede tapar: en una
-  /// compra por kilo, basta con ir a pesar al animal que falto.
-  int get prorrateados => renglones.where((r) => r.costo.esProrrateado).length;
+  ({double total, int conocidos, int desconocidos}) get resumen =>
+      sumaCostos([for (final r in renglones) r.costo]);
 
-  double get costoPromedio =>
-      renglones.isEmpty ? 0 : total / renglones.length;
+  /// Cuantos animales no tienen costo porque falta pesarlos.
+  int get faltaPesar =>
+      renglones.where((r) => r.costo.falta == FaltaDato.peso).length;
+
+  /// Cuantos no tienen costo porque falta el precio.
+  int get faltaPrecio =>
+      renglones.where((r) => r.costo.falta == FaltaDato.precio).length;
 }
 
 class RepoCompras {
@@ -55,68 +65,54 @@ class RepoCompras {
 
   final BaseDatos db;
 
-  /// Arma el lote con los costos ya calculados.
+  /// Arma la compra con los costos ya calculados.
   ///
-  /// El calculo en si vive en `domain/reglas/costo_compra.dart`, sin drift ni
-  /// Flutter, y esta cubierto por pruebas. Aqui solo se juntan los datos.
-  Future<LoteConCostos?> verLote(String loteId) async {
+  /// El calculo vive en `domain/reglas/costo_compra.dart`, sin drift ni
+  /// Flutter, y esta cubierto por pruebas. Aqui solo se resuelve que dato usar:
+  /// el propio del animal o el heredado de la compra.
+  Future<CompraConCostos?> verCompra(String loteId) async {
     final lote = await db.loteCompra(loteId);
     if (lote == null) return null;
 
-    final enLote = await db.animalesDelLote(loteId);
-    final gastos = await db.gastosDelLote(loteId);
-    final sumaGastos = gastos.fold<double>(0, (s, g) => s + g.monto);
+    final filas = await db.animalesDelLote(loteId);
+    final renglones = <RenglonCompra>[];
 
-    final animales = <Animal>[];
-    final pesos = <String, double?>{};
-    final aretes = <String, String?>{};
-
-    for (final fila in enLote) {
-      final animal = await (db.select(db.animales)
-            ..where((a) => a.id.equals(fila.animalId)))
-          .getSingleOrNull();
+    for (final fila in filas) {
+      final animal = await db.animal(fila.animalId);
       if (animal == null) continue;
-      animales.add(animal);
-      pesos[animal.id] = await db.pesoDeCompra(animal.id);
-      aretes[animal.id] = (await db.areteVigente(animal.id))?.numero;
+
+      final vendedor = propioOHeredado(fila.vendedor, lote.vendedor)!;
+      final formaTexto = propioOHeredado(fila.formaCalculo, lote.formaCalculo);
+      final forma = formaTexto == 'porCabeza'
+          ? FormaCotizacion.porCabeza
+          : FormaCotizacion.porKilo;
+      final precioKilo = propioOHeredado(fila.precioPorKilo, lote.precioPorKilo);
+      final peso = await db.pesoDeCompra(animal.id);
+
+      renglones.add(
+        RenglonCompra(
+          animal: animal,
+          numeroArete: (await db.areteVigente(animal.id))?.numero,
+          vendedor: vendedor,
+          forma: forma,
+          precioPorKilo: precioKilo,
+          precioPorCabeza: fila.precioPorCabeza,
+          pesoCompraKg: peso,
+          tratoPropio: fila.vendedor != null ||
+              fila.formaCalculo != null ||
+              fila.precioPorKilo != null,
+          costo: costoDelAnimal(
+            CompraDeAnimal(
+              forma: forma,
+              precioPorKilo: precioKilo,
+              precioPorCabeza: fila.precioPorCabeza,
+              pesoCompraKg: peso,
+            ),
+          ),
+        ),
+      );
     }
 
-    final costos = calcularCostosLote(
-      animales: [
-        for (final fila in enLote)
-          if (animales.any((a) => a.id == fila.animalId))
-            AnimalDelLote(
-              animalId: fila.animalId,
-              pesoCompraKg: pesos[fila.animalId],
-              costoIndividual: fila.costoIndividual,
-            ),
-      ],
-      forma: lote.formaCalculo == 'porKilo'
-          ? FormaCalculo.porKilo
-          : FormaCalculo.porCabeza,
-      precioPorKilo: lote.precioPorKilo ?? 0,
-      montoTotal: lote.montoTotal,
-      gastos: sumaGastos,
-      prorrateoGastos: lote.formaProrrateoGastos == 'porKilo'
-          ? FormaProrrateo.porKilo
-          : FormaProrrateo.porCabeza,
-    );
-
-    final porAnimal = {for (final c in costos) c.animalId: c};
-
-    return LoteConCostos(
-      lote: lote,
-      gastos: sumaGastos,
-      renglones: [
-        for (final a in animales)
-          if (porAnimal[a.id] != null)
-            RenglonCompra(
-              animal: a,
-              numeroArete: aretes[a.id],
-              pesoCompraKg: pesos[a.id],
-              costo: porAnimal[a.id]!,
-            ),
-      ],
-    );
+    return CompraConCostos(lote: lote, renglones: renglones);
   }
 }

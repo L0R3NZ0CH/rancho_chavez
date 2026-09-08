@@ -4,12 +4,15 @@ import '../../comun/fechas.dart';
 import '../../comun/tema.dart';
 import '../../data/db/base_datos.dart';
 
-/// Registrar una compra.
+/// Registrar una compra: un viaje, un dia, un lugar.
 ///
-/// Se captura **una vez por camion**, no una vez por animal. El vendedor, el
-/// precio y los gastos son del lote; los animales se le meten despues
-/// escaneando. Si esto viviera dentro del alta de cada animal habria que
-/// teclear lo mismo ochenta veces.
+/// Lo que se captura aqui es **lo que se repite**: el lugar, y el vendedor y el
+/// precio mas probables del viaje. Cada animal los hereda y a cualquiera se le
+/// pueden cambiar, porque en un mismo viaje se le pueden comprar dos becerros a
+/// un senor y tres a otro.
+///
+/// No se pregunta el total pagado ni los gastos que repartir: con precio por
+/// animal no hay nada que prorratear.
 class PantallaNuevaCompra extends StatefulWidget {
   const PantallaNuevaCompra({super.key, required this.db});
 
@@ -22,13 +25,9 @@ class PantallaNuevaCompra extends StatefulWidget {
 class _PantallaNuevaCompraState extends State<PantallaNuevaCompra> {
   final _vendedor = TextEditingController();
   final _lugar = TextEditingController();
-  final _monto = TextEditingController();
   final _precioKilo = TextEditingController();
-  final _flete = TextEditingController();
-  final _comision = TextEditingController();
 
   String _forma = 'porKilo';
-  String _prorrateo = 'porCabeza';
   List<String> _vendedoresPrevios = const [];
   bool _guardando = false;
 
@@ -42,25 +41,13 @@ class _PantallaNuevaCompraState extends State<PantallaNuevaCompra> {
 
   @override
   void dispose() {
-    for (final c in [
-      _vendedor,
-      _lugar,
-      _monto,
-      _precioKilo,
-      _flete,
-      _comision,
-    ]) {
+    for (final c in [_vendedor, _lugar, _precioKilo]) {
       c.dispose();
     }
     super.dispose();
   }
 
-  double? get _montoTotal => double.tryParse(_monto.text.trim());
-
-  bool get _listo =>
-      _vendedor.text.trim().isNotEmpty &&
-      (_montoTotal ?? 0) > 0 &&
-      !_guardando;
+  bool get _listo => _vendedor.text.trim().isNotEmpty && !_guardando;
 
   Future<void> _guardar() async {
     if (!_listo) return;
@@ -75,23 +62,7 @@ class _PantallaNuevaCompraState extends State<PantallaNuevaCompra> {
         precioPorKilo: _forma == 'porKilo'
             ? double.tryParse(_precioKilo.text.trim())
             : null,
-        montoTotal: _montoTotal!,
-        formaProrrateoGastos: _prorrateo,
       );
-
-      for (final (concepto, campo) in [
-        ('flete', _flete),
-        ('comision', _comision),
-      ]) {
-        final monto = double.tryParse(campo.text.trim());
-        if (monto != null && monto > 0) {
-          await widget.db.agregarGastoCompra(
-            loteCompraId: id,
-            concepto: concepto,
-            monto: monto,
-          );
-        }
-      }
 
       if (mounted) Navigator.pop(context, id);
     } finally {
@@ -121,7 +92,7 @@ class _PantallaNuevaCompraState extends State<PantallaNuevaCompra> {
                           style: const TextStyle(fontSize: 20),
                           decoration: const InputDecoration(
                             border: OutlineInputBorder(),
-                            hintText: 'Nombre del vendedor',
+                            hintText: 'El vendedor mas comun del viaje',
                           ),
                           onChanged: (_) => setState(() {}),
                         ),
@@ -187,58 +158,14 @@ class _PantallaNuevaCompraState extends State<PantallaNuevaCompra> {
                   if (_forma == 'porKilo')
                     _Campo(
                       titulo: 'Precio por kilo',
-                      subtitulo:
-                          'Con esto el costo de cada animal sale de su peso de '
-                          'recepcion, y es real en vez de un reparto.',
+                      subtitulo: 'El costo de cada animal sale de su peso de '
+                          'recepcion por este precio. A quien se le haya '
+                          'comprado a otro precio, se le cambia despues.',
                       hijo: _Dinero(
                         controlador: _precioKilo,
                         sufijo: 'por kg',
                       ),
                     ),
-                  _Campo(
-                    titulo: 'Total pagado por los animales',
-                    obligatorio: true,
-                    subtitulo: 'Sin contar flete ni comision.',
-                    hijo: _Dinero(
-                      controlador: _monto,
-                      onCambio: () => setState(() {}),
-                    ),
-                  ),
-                  _Campo(
-                    titulo: 'Gastos del lote',
-                    subtitulo: 'Opcionales. Se reparten entre los animales.',
-                    hijo: Column(
-                      children: [
-                        _Dinero(controlador: _flete, sufijo: 'flete'),
-                        const SizedBox(height: 10),
-                        _Dinero(controlador: _comision, sufijo: 'comision'),
-                      ],
-                    ),
-                  ),
-                  _Campo(
-                    titulo: 'Como se reparten los gastos',
-                    hijo: Row(
-                      children: [
-                        Expanded(
-                          child: _Opcion(
-                            etiqueta: 'POR CABEZA',
-                            activo: _prorrateo == 'porCabeza',
-                            onTap: () =>
-                                setState(() => _prorrateo = 'porCabeza'),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _Opcion(
-                            etiqueta: 'POR KILO',
-                            activo: _prorrateo == 'porKilo',
-                            onTap: () =>
-                                setState(() => _prorrateo = 'porKilo'),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
                 ],
               ),
             ),
@@ -258,11 +185,10 @@ class _PantallaNuevaCompraState extends State<PantallaNuevaCompra> {
 }
 
 class _Dinero extends StatelessWidget {
-  const _Dinero({required this.controlador, this.sufijo, this.onCambio});
+  const _Dinero({required this.controlador, this.sufijo});
 
   final TextEditingController controlador;
   final String? sufijo;
-  final VoidCallback? onCambio;
 
   @override
   Widget build(BuildContext context) {
@@ -276,7 +202,6 @@ class _Dinero extends StatelessWidget {
         suffixText: sufijo,
         hintText: '0',
       ),
-      onChanged: (_) => onCambio?.call(),
     );
   }
 }

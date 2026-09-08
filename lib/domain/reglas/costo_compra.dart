@@ -1,179 +1,116 @@
-/// Cuanto costo cada animal de un lote de compra.
+/// Cuanto costo un animal comprado.
 ///
 /// Este archivo no sabe de drift ni de Flutter. Recibe datos planos y devuelve
 /// numeros, porque de aqui sale la cifra con la que se decide si una compra
 /// estuvo bien hecha, y una cifra asi tiene que poder leerse y probarse sin
 /// entender SQL.
+///
+/// **No hay prorrateo.** Cada animal se compra a un vendedor, a un precio, y su
+/// costo sale de su propio peso. Repartir el total de un lote entre sus
+/// animales solo tendria sentido si se comprara el bulto sin saber que le toco
+/// a cada quien, y asi no se compra en este rancho: en un mismo viaje se le
+/// pueden comprar dos becerros a un senor y tres a otro, cada uno con su trato.
 library;
 
-/// Como se cotizo la compra.
-enum FormaCalculo {
-  /// Tanto el kilo, sobre el peso de recepcion.
-  porKilo,
+/// Como se cotizo el animal.
+enum FormaCotizacion { porKilo, porCabeza }
 
-  /// Tanto la cabeza, sin importar el peso.
-  porCabeza,
+/// Por que no se puede saber cuanto costo un animal.
+enum FaltaDato {
+  /// Se cotizo por kilo y no se ha pesado.
+  peso,
+
+  /// No se ha capturado el precio.
+  precio,
 }
 
-/// Como se reparten los gastos del lote: flete, comision, documentacion.
-enum FormaProrrateo { porKilo, porCabeza }
-
-/// Un animal dentro del lote, con lo que se sabe de el.
-class AnimalDelLote {
-  const AnimalDelLote({
-    required this.animalId,
+/// Los datos de compra de un animal, ya resueltos.
+///
+/// "Resueltos" quiere decir que quien arma esto ya decidio si el vendedor y el
+/// precio son los propios del animal o los que heredo de la compra.
+class CompraDeAnimal {
+  const CompraDeAnimal({
+    required this.forma,
+    this.precioPorKilo,
+    this.precioPorCabeza,
     this.pesoCompraKg,
-    this.costoIndividual,
   });
 
-  final String animalId;
+  final FormaCotizacion forma;
+  final double? precioPorKilo;
+  final double? precioPorCabeza;
 
-  /// Peso al recibirlo. Nulo cuando no se peso.
+  /// Peso de recepcion. Nulo cuando todavia no se pesa.
   final double? pesoCompraKg;
-
-  /// Precio negociado para este animal en concreto, cuando lo hubo.
-  ///
-  /// El precio varia por temporada y por peso final, asi que dentro de un mismo
-  /// lote puede haber animales a precios distintos.
-  final double? costoIndividual;
 }
 
-/// Lo que costo un animal, y que tan confiable es esa cifra.
+/// Lo que costo un animal, o por que no se sabe.
 class CostoAnimal {
-  const CostoAnimal({
-    required this.animalId,
-    required this.costoBase,
-    required this.gastosAsignados,
-    required this.esProrrateado,
-  });
+  const CostoAnimal._({this.total, this.falta});
 
-  final String animalId;
+  const CostoAnimal.conocido(double monto) : this._(total: monto);
+  const CostoAnimal.desconocido(FaltaDato falta) : this._(falta: falta);
 
-  /// Lo que costo el animal sin contar los gastos del lote.
-  final double costoBase;
-
-  /// La parte de flete, comision y documentacion que le toca.
-  final double gastosAsignados;
-
-  double get total => costoBase + gastosAsignados;
-
-  /// Verdadero cuando el costo base **no** es un dato real de este animal sino
-  /// un reparto del total del lote.
+  /// Nulo cuando no se puede saber. **No se inventa un numero.**
   ///
-  /// Se marca en pantalla a proposito. Una compra por cabeza siempre reparte;
-  /// una compra por kilo solo reparte cuando falto pesar al animal, y ese caso
-  /// hay que poder verlo, porque es un hueco que se puede tapar yendo a pesar.
-  final bool esProrrateado;
+  /// Un hueco visible es mejor que una cifra que parece cierta y no lo es: el
+  /// hueco se tapa yendo a pesar al animal o capturando el precio, y la cifra
+  /// falsa se arrastra a todas las cuentas de ahi en adelante sin que nadie lo
+  /// note.
+  final double? total;
+
+  final FaltaDato? falta;
+
+  bool get seSabe => total != null;
 }
 
-/// Reparte el costo de un lote entre sus animales.
-///
-/// El orden de las reglas es el que importa:
-///
-///   1. Un precio individual gana siempre. Es el dato mas fiel que existe.
-///   2. Por kilo, con peso de recepcion, da un costo **real**.
-///   3. Por kilo **sin** peso, o por cabeza, obliga a repartir. Se marca.
-///
-/// Lo que queda del total del lote despues de descontar los precios
-/// individuales y los costos por kilo es lo que se reparte entre los que no
-/// tienen dato propio. Asi la suma de los costos siempre cuadra con el total
-/// pagado, que es la propiedad que hace que la cifra sirva para algo.
-List<CostoAnimal> calcularCostosLote({
-  required List<AnimalDelLote> animales,
-  required FormaCalculo forma,
-  required double montoTotal,
-  double precioPorKilo = 0,
-  double gastos = 0,
-  FormaProrrateo prorrateoGastos = FormaProrrateo.porCabeza,
-}) {
-  if (animales.isEmpty) return const [];
+/// Calcula lo que costo un animal.
+CostoAnimal costoDelAnimal(CompraDeAnimal compra) {
+  switch (compra.forma) {
+    case FormaCotizacion.porKilo:
+      final precio = compra.precioPorKilo;
+      if (precio == null || precio <= 0) {
+        return const CostoAnimal.desconocido(FaltaDato.precio);
+      }
+      final peso = compra.pesoCompraKg;
+      if (peso == null || peso <= 0) {
+        return const CostoAnimal.desconocido(FaltaDato.peso);
+      }
+      return CostoAnimal.conocido(peso * precio);
 
-  final costosBase = <String, double>{};
-  final prorrateados = <String>{};
-
-  // Paso 1: lo que ya tiene precio propio.
-  var asignado = 0.0;
-  final sinDatoPropio = <AnimalDelLote>[];
-
-  for (final a in animales) {
-    final individual = a.costoIndividual;
-    if (individual != null) {
-      costosBase[a.animalId] = individual;
-      asignado += individual;
-      continue;
-    }
-
-    if (forma == FormaCalculo.porKilo &&
-        a.pesoCompraKg != null &&
-        precioPorKilo > 0) {
-      final costo = a.pesoCompraKg! * precioPorKilo;
-      costosBase[a.animalId] = costo;
-      asignado += costo;
-      continue;
-    }
-
-    sinDatoPropio.add(a);
+    case FormaCotizacion.porCabeza:
+      final precio = compra.precioPorCabeza;
+      if (precio == null || precio < 0) {
+        return const CostoAnimal.desconocido(FaltaDato.precio);
+      }
+      return CostoAnimal.conocido(precio);
   }
-
-  // Paso 2: lo que sobra del total se reparte por cabeza entre los que no
-  // tienen dato propio. Si el total no alcanza (por ejemplo, porque los
-  // precios individuales ya lo cubrieron), el reparto es cero y no negativo:
-  // un costo negativo no significa nada y ensuciaria todas las sumas.
-  if (sinDatoPropio.isNotEmpty) {
-    final resto = montoTotal - asignado;
-    final porCabeza = resto <= 0 ? 0.0 : resto / sinDatoPropio.length;
-    for (final a in sinDatoPropio) {
-      costosBase[a.animalId] = porCabeza;
-      prorrateados.add(a.animalId);
-    }
-  }
-
-  // Paso 3: los gastos del lote, repartidos aparte.
-  final gastosPorAnimal = _repartirGastos(
-    animales: animales,
-    gastos: gastos,
-    forma: prorrateoGastos,
-  );
-
-  return [
-    for (final a in animales)
-      CostoAnimal(
-        animalId: a.animalId,
-        costoBase: costosBase[a.animalId] ?? 0,
-        gastosAsignados: gastosPorAnimal[a.animalId] ?? 0,
-        esProrrateado: prorrateados.contains(a.animalId),
-      ),
-  ];
 }
 
-Map<String, double> _repartirGastos({
-  required List<AnimalDelLote> animales,
-  required double gastos,
-  required FormaProrrateo forma,
-}) {
-  if (gastos <= 0 || animales.isEmpty) {
-    return {for (final a in animales) a.animalId: 0.0};
-  }
+/// Suma lo que se sabe de una lista de costos.
+///
+/// Los que no se saben quedan fuera de la suma y se cuentan aparte, para que la
+/// pantalla pueda decir "llevas tanto, y faltan tres por saber" en vez de dar
+/// un total que se lee como si estuviera completo.
+({double total, int conocidos, int desconocidos}) sumaCostos(
+  List<CostoAnimal> costos,
+) {
+  var total = 0.0;
+  var conocidos = 0;
+  var desconocidos = 0;
 
-  if (forma == FormaProrrateo.porKilo) {
-    final kilosTotales = animales.fold<double>(
-      0,
-      (suma, a) => suma + (a.pesoCompraKg ?? 0),
-    );
-    // Sin pesos no se puede repartir por kilo. Se cae a por cabeza en vez de
-    // dividir entre cero o dejar los gastos fuera de la cuenta.
-    if (kilosTotales > 0) {
-      return {
-        for (final a in animales)
-          a.animalId: gastos * ((a.pesoCompraKg ?? 0) / kilosTotales),
-      };
+  for (final c in costos) {
+    final monto = c.total;
+    if (monto == null) {
+      desconocidos++;
+    } else {
+      total += monto;
+      conocidos++;
     }
   }
 
-  final porCabeza = gastos / animales.length;
-  return {for (final a in animales) a.animalId: porCabeza};
+  return (total: total, conocidos: conocidos, desconocidos: desconocidos);
 }
 
-/// Lo que se pago en total por el lote, ya con gastos.
-double totalDelLote({required double montoTotal, double gastos = 0}) =>
-    montoTotal + gastos;
+/// Resuelve un valor propio del animal, o el heredado de la compra.
+T? propioOHeredado<T>(T? propio, T? deLaCompra) => propio ?? deLaCompra;

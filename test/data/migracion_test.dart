@@ -186,20 +186,14 @@ void main() {
       final lote = await db.crearLoteCompra(
         fecha: 20260908,
         vendedor: 'Don Chuy',
+        lugar: 'La subasta',
         formaCalculo: 'porKilo',
         precioPorKilo: 62,
-        montoTotal: 13144,
       );
       await db.agregarAnimalALote(loteCompraId: lote, animalId: animal);
-      await db.agregarGastoCompra(
-        loteCompraId: lote,
-        concepto: 'flete',
-        monto: 1500,
-      );
 
       expect((await db.verLotesCompra().first).single.vendedor, 'Don Chuy');
       expect(await db.animalesDelLote(lote), hasLength(1));
-      expect((await db.gastosDelLote(lote)).single.monto, 1500);
       expect(await db.vendedoresUsados(), ['Don Chuy']);
     });
 

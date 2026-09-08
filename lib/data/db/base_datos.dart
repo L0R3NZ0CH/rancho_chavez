@@ -29,7 +29,6 @@ const versionEsquema = 3;
     Fotos,
     Configuracion,
     LotesCompra,
-    LoteCompraGastos,
     LoteCompraAnimales,
   ],
 )
@@ -66,8 +65,13 @@ class BaseDatos extends _$BaseDatos {
 
           if (desde <= 2) {
             // Compras: solo agrega tablas, no toca ni una fila existente.
+            //
+            // El DROP es por si algun dispositivo alcanzo a instalar la primera
+            // forma de la version 3, que modelaba la compra como un camion de
+            // un solo dueno con gastos que repartir. Esa tabla desaparecio y
+            // nunca guardo datos del rancho.
+            await customStatement('DROP TABLE IF EXISTS lote_compra_gastos');
             await m.createTable(lotesCompra);
-            await m.createTable(loteCompraGastos);
             await m.createTable(loteCompraAnimales);
           }
 
@@ -387,6 +391,9 @@ class BaseDatos extends _$BaseDatos {
     return fila?.readTable(animales);
   }
 
+  Future<Animal?> animal(String id) =>
+      (select(animales)..where((a) => a.id.equals(id))).getSingleOrNull();
+
   /// Todos los eventos vivos de un animal, del mas reciente al mas viejo.
   ///
   /// El orden lleva tres criterios y los tres importan: la fecha del hecho es
@@ -468,10 +475,8 @@ class BaseDatos extends _$BaseDatos {
     required int fecha,
     required String vendedor,
     required String formaCalculo,
-    required double montoTotal,
     double? precioPorKilo,
     String? lugar,
-    String formaProrrateoGastos = 'porCabeza',
     String? notas,
   }) async {
     final s = await _sello();
@@ -484,31 +489,9 @@ class BaseDatos extends _$BaseDatos {
         fecha: fecha,
         vendedor: vendedor,
         formaCalculo: formaCalculo,
-        montoTotal: montoTotal,
         precioPorKilo: Value(precioPorKilo),
         lugar: Value(lugar),
-        formaProrrateoGastos: Value(formaProrrateoGastos),
         notas: Value(notas),
-      ),
-    );
-    return s.id;
-  }
-
-  Future<String> agregarGastoCompra({
-    required String loteCompraId,
-    required String concepto,
-    required double monto,
-  }) async {
-    final s = await _sello();
-    await into(loteCompraGastos).insert(
-      LoteCompraGastosCompanion.insert(
-        id: s.id,
-        creadoEn: s.ahora,
-        modificadoEn: s.ahora,
-        dispositivoId: s.dispositivo,
-        loteCompraId: loteCompraId,
-        concepto: concepto,
-        monto: monto,
       ),
     );
     return s.id;
@@ -517,7 +500,10 @@ class BaseDatos extends _$BaseDatos {
   Future<String> agregarAnimalALote({
     required String loteCompraId,
     required String animalId,
-    double? costoIndividual,
+    String? vendedor,
+    String? formaCalculo,
+    double? precioPorKilo,
+    double? precioPorCabeza,
   }) async {
     final s = await _sello();
     await into(loteCompraAnimales).insert(
@@ -528,7 +514,10 @@ class BaseDatos extends _$BaseDatos {
         dispositivoId: s.dispositivo,
         loteCompraId: loteCompraId,
         animalId: animalId,
-        costoIndividual: Value(costoIndividual),
+        vendedor: Value(vendedor),
+        formaCalculo: Value(formaCalculo),
+        precioPorKilo: Value(precioPorKilo),
+        precioPorCabeza: Value(precioPorCabeza),
       ),
     );
     return s.id;
@@ -550,12 +539,6 @@ class BaseDatos extends _$BaseDatos {
       (select(loteCompraAnimales)
             ..where((a) =>
                 a.loteCompraId.equals(loteCompraId) & a.eliminadoEn.isNull()))
-          .get();
-
-  Future<List<GastoCompra>> gastosDelLote(String loteCompraId) =>
-      (select(loteCompraGastos)
-            ..where((g) =>
-                g.loteCompraId.equals(loteCompraId) & g.eliminadoEn.isNull()))
           .get();
 
   /// El peso de recepcion de un animal: su pesaje con tipo 'compra'.
@@ -581,14 +564,18 @@ class BaseDatos extends _$BaseDatos {
     return fila?.readTable(eventoPesos).kilos;
   }
 
-  /// Fija el precio negociado de un animal dentro de un lote.
+  /// Cambia el trato de un animal dentro de una compra.
   ///
-  /// Gana sobre el calculo del lote, porque el precio varia por temporada y
-  /// por peso final y dentro de un mismo camion puede haber tratos distintos.
-  Future<void> fijarCostoIndividual({
+  /// Cada campo que se pase gana sobre lo heredado de la compra. Es lo que
+  /// permite que en un mismo viaje dos becerros sean de un senor y tres de
+  /// otro, cada uno a su precio.
+  Future<void> ajustarTratoDelAnimal({
     required String loteCompraId,
     required String animalId,
-    required double? costo,
+    Value<String?> vendedor = const Value.absent(),
+    Value<String?> formaCalculo = const Value.absent(),
+    Value<double?> precioPorKilo = const Value.absent(),
+    Value<double?> precioPorCabeza = const Value.absent(),
   }) async {
     await (update(loteCompraAnimales)
           ..where((t) =>
@@ -596,7 +583,10 @@ class BaseDatos extends _$BaseDatos {
               t.animalId.equals(animalId)))
         .write(
       LoteCompraAnimalesCompanion(
-        costoIndividual: Value(costo),
+        vendedor: vendedor,
+        formaCalculo: formaCalculo,
+        precioPorKilo: precioPorKilo,
+        precioPorCabeza: precioPorCabeza,
         modificadoEn: Value(ahoraUtcMs()),
       ),
     );
@@ -608,10 +598,18 @@ class BaseDatos extends _$BaseDatos {
           ..addColumns([lotesCompra.vendedor])
           ..where(lotesCompra.eliminadoEn.isNull()))
         .get();
-    return filas
-        .map((f) => f.read(lotesCompra.vendedor))
-        .whereType<String>()
-        .toList();
+    final propios = await (selectOnly(loteCompraAnimales, distinct: true)
+          ..addColumns([loteCompraAnimales.vendedor])
+          ..where(loteCompraAnimales.eliminadoEn.isNull()))
+        .get();
+
+    return {
+      ...filas.map((f) => f.read(lotesCompra.vendedor)).whereType<String>(),
+      ...propios
+          .map((f) => f.read(loteCompraAnimales.vendedor))
+          .whereType<String>(),
+    }.toList()
+      ..sort();
   }
 
   /// Borrado logico (regla 3). El renglon se queda; solo se marca la fecha.

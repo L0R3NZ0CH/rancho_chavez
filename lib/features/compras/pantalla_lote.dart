@@ -1,14 +1,16 @@
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 
 import '../../comun/fechas.dart';
 import '../../comun/tema.dart';
 import '../../data/db/base_datos.dart';
 import '../../data/repos/compras.dart';
+import '../../domain/reglas/costo_compra.dart';
 import '../animales/pantalla_alta.dart';
 import '../animales/pantalla_ficha.dart';
 import '../escaneo/pantalla_escaneo.dart';
 
-/// El detalle de un lote de compra: sus animales y lo que costo cada uno.
+/// El detalle de una compra: sus animales y lo que costo cada uno.
 class PantallaLoteCompra extends StatefulWidget {
   const PantallaLoteCompra({super.key, required this.db, required this.loteId});
 
@@ -20,7 +22,7 @@ class PantallaLoteCompra extends StatefulWidget {
 }
 
 class _PantallaLoteCompraState extends State<PantallaLoteCompra> {
-  LoteConCostos? _lote;
+  CompraConCostos? _compra;
   bool _cargando = true;
 
   @override
@@ -30,19 +32,28 @@ class _PantallaLoteCompraState extends State<PantallaLoteCompra> {
   }
 
   Future<void> _cargar() async {
-    final lote = await RepoCompras(widget.db).verLote(widget.loteId);
+    final compra = await RepoCompras(widget.db).verCompra(widget.loteId);
     if (!mounted) return;
     setState(() {
-      _lote = lote;
+      _compra = compra;
       _cargando = false;
     });
   }
 
-  /// Agregar un animal al lote escaneando su arete.
+  Future<void> _meterAlLote(String animalId) async {
+    await widget.db.agregarAnimalALote(
+      loteCompraId: widget.loteId,
+      animalId: animalId,
+    );
+    await _cargar();
+  }
+
+  /// Agregar escaneando el arete.
   ///
-  /// Si el arete no existe, se va derecho al alta: en una descarga de camion,
-  /// lo normal es que todos sean animales nuevos.
-  Future<void> _agregar() async {
+  /// Si el arete no esta registrado se va al alta con el numero ya puesto. No
+  /// se da por hecho que el animal exista: en una compra, lo normal es que sea
+  /// nuevo.
+  Future<void> _agregarEscaneando() async {
     final numero = await Navigator.push<String>(
       context,
       MaterialPageRoute(builder: (_) => const PantallaEscaneo()),
@@ -53,127 +64,136 @@ class _PantallaLoteCompraState extends State<PantallaLoteCompra> {
     if (!mounted) return;
 
     if (existente != null) {
-      final yaEnLote = (await widget.db.animalesDelLote(widget.loteId))
+      final yaEsta = (await widget.db.animalesDelLote(widget.loteId))
           .any((f) => f.animalId == existente.id);
       if (!mounted) return;
 
-      if (yaEnLote) {
+      if (yaEsta) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             backgroundColor: Paleta.aviso,
             content: Text(
-              'Ese animal ya esta en este lote.',
+              'Ese animal ya esta en esta compra.',
               style: TextStyle(fontSize: 17),
             ),
           ),
         );
         return;
       }
-
-      await widget.db.agregarAnimalALote(
-        loteCompraId: widget.loteId,
-        animalId: existente.id,
-      );
-      await _cargar();
+      await _meterAlLote(existente.id);
       return;
     }
 
+    await _altaYMeter(numeroArete: numero);
+  }
+
+  /// Agregar un animal que **no trae arete**.
+  ///
+  /// Los becerros comprados llegan sin identificar. Obligar a escanear para
+  /// poder meterlos a la compra seria contradecir la regla del proyecto: el
+  /// animal existe antes que el arete.
+  Future<void> _agregarSinArete() => _altaYMeter();
+
+  Future<void> _altaYMeter({String? numeroArete}) async {
     final id = await Navigator.push<String>(
       context,
       MaterialPageRoute(
-        builder: (_) => PantallaAlta(db: widget.db, numeroArete: numero),
+        builder: (_) => PantallaAlta(db: widget.db, numeroArete: numeroArete),
       ),
     );
     if (id == null || !mounted) return;
-
-    await widget.db.agregarAnimalALote(
-      loteCompraId: widget.loteId,
-      animalId: id,
-    );
-    await _cargar();
+    await _meterAlLote(id);
   }
 
-  Future<void> _precioIndividual(RenglonCompra r) async {
-    final valor = await showDialog<double>(
+  Future<void> _editarTrato(RenglonCompra r) async {
+    final cambio = await showDialog<_Trato>(
       context: context,
-      builder: (_) => _DialogoPrecio(actual: r.costo.costoBase),
+      builder: (_) => _DialogoTrato(renglon: r),
     );
-    if (valor == null || !mounted) return;
+    if (cambio == null || !mounted) return;
 
-    await widget.db.fijarCostoIndividual(
+    await widget.db.ajustarTratoDelAnimal(
       loteCompraId: widget.loteId,
       animalId: r.animal.id,
-      costo: valor,
+      vendedor: Value(cambio.vendedor),
+      formaCalculo: Value(cambio.forma),
+      precioPorKilo: Value(cambio.precioPorKilo),
+      precioPorCabeza: Value(cambio.precioPorCabeza),
     );
     await _cargar();
   }
 
   @override
   Widget build(BuildContext context) {
-    final lote = _lote;
+    final compra = _compra;
 
     return Scaffold(
-      appBar: AppBar(title: Text(lote?.lote.vendedor ?? 'Compra')),
+      appBar: AppBar(
+        title: Text(
+          compra == null ? 'Compra' : formateaAaaammdd(compra.lote.fecha),
+        ),
+      ),
       body: SafeArea(
         child: _cargando
             ? const Center(child: CircularProgressIndicator())
-            : lote == null
+            : compra == null
                 ? const Center(
                     child: Text('No se encontro la compra',
                         style: TextStyle(fontSize: 18)),
                   )
                 : Column(
                     children: [
-                      _Resumen(lote: lote),
+                      _Resumen(compra: compra),
                       Expanded(
-                        child: lote.renglones.isEmpty
-                            ? const Center(
-                                child: Padding(
-                                  padding: EdgeInsets.all(28),
-                                  child: Text(
-                                    'Todavia no hay animales en esta compra.\n\n'
-                                    'Escanea el arete de cada uno para irlos '
-                                    'metiendo. El precio y el vendedor ya '
-                                    'estan puestos, no hay que repetirlos.',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      fontSize: 18,
-                                      color: Paleta.textoSuave,
-                                    ),
-                                  ),
-                                ),
-                              )
+                        child: compra.renglones.isEmpty
+                            ? const _Vacio()
                             : ListView.separated(
                                 padding:
                                     const EdgeInsets.symmetric(horizontal: 12),
-                                itemCount: lote.renglones.length,
+                                itemCount: compra.renglones.length,
                                 separatorBuilder: (_, _) => const Divider(
                                   height: 1,
                                   color: Paleta.borde,
                                 ),
                                 itemBuilder: (context, i) => _Renglon(
-                                  renglon: lote.renglones[i],
+                                  renglon: compra.renglones[i],
                                   onTap: () => Navigator.push(
                                     context,
                                     MaterialPageRoute(
                                       builder: (_) => PantallaFicha(
                                         db: widget.db,
                                         animalId:
-                                            lote.renglones[i].animal.id,
+                                            compra.renglones[i].animal.id,
                                       ),
                                     ),
                                   ).then((_) => _cargar()),
-                                  onPrecio: () =>
-                                      _precioIndividual(lote.renglones[i]),
+                                  onTrato: () =>
+                                      _editarTrato(compra.renglones[i]),
                                 ),
                               ),
                       ),
                       Padding(
                         padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                        child: BotonGrande(
-                          etiqueta: 'AGREGAR ANIMAL',
-                          icono: Icons.qr_code_scanner,
-                          onPressed: _agregar,
+                        child: Row(
+                          children: [
+                            Expanded(
+                              flex: 2,
+                              child: BotonGrande(
+                                etiqueta: 'ESCANEAR',
+                                icono: Icons.qr_code_scanner,
+                                onPressed: _agregarEscaneando,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: BotonGrande(
+                                etiqueta: 'SIN ARETE',
+                                icono: Icons.add,
+                                contorno: true,
+                                onPressed: _agregarSinArete,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
@@ -185,14 +205,36 @@ class _PantallaLoteCompraState extends State<PantallaLoteCompra> {
 
 String _pesos(double v) => '\$${v.toStringAsFixed(2)}';
 
-class _Resumen extends StatelessWidget {
-  const _Resumen({required this.lote});
-
-  final LoteConCostos lote;
+class _Vacio extends StatelessWidget {
+  const _Vacio();
 
   @override
   Widget build(BuildContext context) {
-    final porKilo = lote.lote.formaCalculo == 'porKilo';
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.all(28),
+        child: Text(
+          'Todavia no hay animales en esta compra.\n\n'
+          'Escanea el arete de cada uno, o usa SIN ARETE si llegaron sin '
+          'identificar. El vendedor y el precio ya estan puestos; solo se '
+          'cambian a los que se hayan comprado aparte.',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 18, color: Paleta.textoSuave),
+        ),
+      ),
+    );
+  }
+}
+
+class _Resumen extends StatelessWidget {
+  const _Resumen({required this.compra});
+
+  final CompraConCostos compra;
+
+  @override
+  Widget build(BuildContext context) {
+    final r = compra.resumen;
+    final porKilo = compra.lote.formaCalculo == 'porKilo';
 
     return Container(
       width: double.infinity,
@@ -206,9 +248,9 @@ class _Resumen extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            formateaAaaammdd(lote.lote.fecha) +
-                (lote.lote.lugar == null ? '' : '  ·  ${lote.lote.lugar}'),
-            style: const TextStyle(fontSize: 16, color: Paleta.textoSuave),
+            compra.lote.vendedor +
+                (compra.lote.lugar == null ? '' : '  ·  ${compra.lote.lugar}'),
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 8),
           Row(
@@ -216,7 +258,7 @@ class _Resumen extends StatelessWidget {
             textBaseline: TextBaseline.alphabetic,
             children: [
               Text(
-                _pesos(lote.total),
+                _pesos(r.total),
                 style: const TextStyle(
                   fontSize: 34,
                   fontWeight: FontWeight.w900,
@@ -224,7 +266,7 @@ class _Resumen extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               Text(
-                '${lote.cabezas} cabezas',
+                '${compra.cabezas} cabezas',
                 style: const TextStyle(
                   fontSize: 18,
                   color: Paleta.textoSuave,
@@ -237,17 +279,14 @@ class _Resumen extends StatelessWidget {
           Text(
             [
               porKilo
-                  ? 'Por kilo a ${_pesos(lote.lote.precioPorKilo ?? 0)}'
+                  ? 'Por kilo a ${_pesos(compra.lote.precioPorKilo ?? 0)}'
                   : 'Por cabeza',
-              if (lote.gastos > 0) 'Gastos ${_pesos(lote.gastos)}',
-              if (lote.kilosTotales > 0)
-                '${lote.kilosTotales.toStringAsFixed(0)} kg',
-              if (lote.cabezas > 0)
-                'Promedio ${_pesos(lote.costoPromedio)}',
+              if (compra.kilosTotales > 0)
+                '${compra.kilosTotales.toStringAsFixed(0)} kg',
             ].join('  ·  '),
             style: const TextStyle(fontSize: 16, color: Paleta.textoSuave),
           ),
-          if (lote.prorrateados > 0) ...[
+          if (r.desconocidos > 0) ...[
             const SizedBox(height: 10),
             Container(
               padding: const EdgeInsets.all(10),
@@ -256,10 +295,11 @@ class _Resumen extends StatelessWidget {
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
-                porKilo
-                    ? '${lote.prorrateados} sin pesar: su costo es un reparto, '
-                        'no un dato real. Se arregla pesandolos.'
-                    : '${lote.prorrateados} con costo repartido del total.',
+                // El total no incluye a los que no se saben, y hay que decirlo:
+                // si no, se leeria como si estuviera completo.
+                'Ese total es de ${r.conocidos} de ${compra.cabezas}. '
+                '${compra.faltaPesar > 0 ? '${compra.faltaPesar} sin pesar. ' : ''}'
+                '${compra.faltaPrecio > 0 ? '${compra.faltaPrecio} sin precio. ' : ''}',
                 style: const TextStyle(color: Colors.white, fontSize: 15),
               ),
             ),
@@ -274,12 +314,12 @@ class _Renglon extends StatelessWidget {
   const _Renglon({
     required this.renglon,
     required this.onTap,
-    required this.onPrecio,
+    required this.onTrato,
   });
 
   final RenglonCompra renglon;
   final VoidCallback onTap;
-  final VoidCallback onPrecio;
+  final VoidCallback onTrato;
 
   @override
   Widget build(BuildContext context) {
@@ -298,90 +338,166 @@ class _Renglon extends StatelessWidget {
       ),
       subtitle: Padding(
         padding: const EdgeInsets.only(top: 4),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              _pesos(c.total),
-              style: TextStyle(
-                fontSize: 19,
-                fontWeight: FontWeight.w700,
-                color: c.esProrrateado ? Paleta.aviso : Paleta.texto,
-              ),
-            ),
-            if (c.esProrrateado)
-              const Padding(
-                padding: EdgeInsets.only(left: 6),
-                child: Icon(Icons.calculate_outlined,
-                    size: 19, color: Paleta.aviso),
-              ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                renglon.pesoCompraKg == null
-                    ? 'sin pesar'
-                    : '${renglon.pesoCompraKg!.toStringAsFixed(0)} kg',
-                style: const TextStyle(
-                  fontSize: 16,
-                  color: Paleta.textoSuave,
+            Row(
+              children: [
+                Text(
+                  c.seSabe ? _pesos(c.total!) : 'No se sabe',
+                  style: TextStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w700,
+                    color: c.seSabe ? Paleta.texto : Paleta.aviso,
+                  ),
                 ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    switch (c.falta) {
+                      FaltaDato.peso => 'falta pesarlo',
+                      FaltaDato.precio => 'falta el precio',
+                      null => renglon.pesoCompraKg == null
+                          ? ''
+                          : '${renglon.pesoCompraKg!.toStringAsFixed(0)} kg',
+                    },
+                    style: const TextStyle(
+                      fontSize: 16,
+                      color: Paleta.textoSuave,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 2),
+            Text(
+              renglon.vendedor + (renglon.tratoPropio ? '  ·  trato aparte' : ''),
+              style: TextStyle(
+                fontSize: 15,
+                color: renglon.tratoPropio ? Paleta.accion : Paleta.textoSuave,
+                fontWeight:
+                    renglon.tratoPropio ? FontWeight.w700 : FontWeight.w400,
               ),
             ),
           ],
         ),
       ),
       trailing: IconButton(
-        tooltip: 'Precio individual',
+        tooltip: 'Cambiar vendedor o precio',
         iconSize: 28,
         icon: const Icon(Icons.edit_outlined),
-        onPressed: onPrecio,
+        onPressed: onTrato,
       ),
     );
   }
 }
 
-class _DialogoPrecio extends StatefulWidget {
-  const _DialogoPrecio({required this.actual});
+/// Lo que devuelve el dialogo de trato.
+class _Trato {
+  const _Trato({
+    this.vendedor,
+    this.forma,
+    this.precioPorKilo,
+    this.precioPorCabeza,
+  });
 
-  final double actual;
-
-  @override
-  State<_DialogoPrecio> createState() => _DialogoPrecioState();
+  final String? vendedor;
+  final String? forma;
+  final double? precioPorKilo;
+  final double? precioPorCabeza;
 }
 
-class _DialogoPrecioState extends State<_DialogoPrecio> {
-  late final _campo =
-      TextEditingController(text: widget.actual.toStringAsFixed(2));
+class _DialogoTrato extends StatefulWidget {
+  const _DialogoTrato({required this.renglon});
+
+  final RenglonCompra renglon;
+
+  @override
+  State<_DialogoTrato> createState() => _DialogoTratoState();
+}
+
+class _DialogoTratoState extends State<_DialogoTrato> {
+  late final _vendedor =
+      TextEditingController(text: widget.renglon.vendedor);
+  late final _precioKilo = TextEditingController(
+    text: widget.renglon.precioPorKilo?.toStringAsFixed(2) ?? '',
+  );
+  late final _precioCabeza = TextEditingController(
+    text: widget.renglon.precioPorCabeza?.toStringAsFixed(2) ?? '',
+  );
+  late String _forma =
+      widget.renglon.forma == FormaCotizacion.porCabeza
+          ? 'porCabeza'
+          : 'porKilo';
 
   @override
   void dispose() {
-    _campo.dispose();
+    _vendedor.dispose();
+    _precioKilo.dispose();
+    _precioCabeza.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Precio de este animal'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Text(
-            'Se usa tal cual y gana sobre el calculo del lote. Para cuando '
-            'ese animal se negocio aparte.',
-            style: TextStyle(fontSize: 16, color: Paleta.textoSuave),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _campo,
-            autofocus: true,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
-              prefixText: r'$ ',
+      title: Text('Trato de ${widget.renglon.titulo}'),
+      content: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'A quien le compraste este',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
             ),
-          ),
-        ],
+            const SizedBox(height: 6),
+            TextField(
+              controller: _vendedor,
+              style: const TextStyle(fontSize: 19),
+              decoration: const InputDecoration(border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Como se cotizo',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 6),
+            SegmentedButton<String>(
+              segments: const [
+                ButtonSegment(value: 'porKilo', label: Text('Por kilo')),
+                ButtonSegment(value: 'porCabeza', label: Text('Por cabeza')),
+              ],
+              selected: {_forma},
+              onSelectionChanged: (s) => setState(() => _forma = s.first),
+            ),
+            const SizedBox(height: 16),
+            if (_forma == 'porKilo')
+              TextField(
+                controller: _precioKilo,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  prefixText: r'$ ',
+                  suffixText: 'por kg',
+                ),
+              )
+            else
+              TextField(
+                controller: _precioCabeza,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  prefixText: r'$ ',
+                  suffixText: 'este animal',
+                ),
+              ),
+          ],
+        ),
       ),
       actions: [
         TextButton(
@@ -389,10 +505,21 @@ class _DialogoPrecioState extends State<_DialogoPrecio> {
           child: const Text('Cancelar', style: TextStyle(fontSize: 18)),
         ),
         TextButton(
-          onPressed: () {
-            final v = double.tryParse(_campo.text.trim());
-            if (v != null && v >= 0) Navigator.pop(context, v);
-          },
+          onPressed: () => Navigator.pop(
+            context,
+            _Trato(
+              vendedor: _vendedor.text.trim().isEmpty
+                  ? null
+                  : _vendedor.text.trim(),
+              forma: _forma,
+              precioPorKilo: _forma == 'porKilo'
+                  ? double.tryParse(_precioKilo.text.trim())
+                  : null,
+              precioPorCabeza: _forma == 'porCabeza'
+                  ? double.tryParse(_precioCabeza.text.trim())
+                  : null,
+            ),
+          ),
           child: const Text('Guardar', style: TextStyle(fontSize: 18)),
         ),
       ],

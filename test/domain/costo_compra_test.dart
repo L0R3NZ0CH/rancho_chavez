@@ -1,212 +1,136 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ganado/domain/reglas/costo_compra.dart';
 
-AnimalDelLote animal(String id, {double? peso, double? individual}) =>
-    AnimalDelLote(
-      animalId: id,
-      pesoCompraKg: peso,
-      costoIndividual: individual,
-    );
-
-double sumaTotal(List<CostoAnimal> costos) =>
-    costos.fold<double>(0, (s, c) => s + c.total);
-
 void main() {
-  group('compra por kilo', () {
-    test('el costo sale del peso de recepcion y es real, no repartido', () {
-      final r = calcularCostosLote(
-        animales: [animal('a', peso: 200), animal('b', peso: 250)],
-        forma: FormaCalculo.porKilo,
-        precioPorKilo: 60,
-        montoTotal: 27000,
-      );
-
-      expect(r[0].costoBase, 12000); // 200 kg x 60
-      expect(r[1].costoBase, 15000); // 250 kg x 60
-      expect(r.every((c) => !c.esProrrateado), isTrue);
+  group('cotizado por kilo', () {
+    test('el costo es el peso por el precio del kilo', () {
+      final c = costoDelAnimal(const CompraDeAnimal(
+        forma: FormaCotizacion.porKilo,
+        precioPorKilo: 62,
+        pesoCompraKg: 212,
+      ));
+      expect(c.seSabe, isTrue);
+      expect(c.total, closeTo(13144, 0.001));
     });
 
-    test('un animal sin pesar queda marcado como prorrateado', () {
-      // Este es el caso que hay que poder ver: es un hueco que se tapa yendo
-      // a pesar al animal, no un destino.
-      final r = calcularCostosLote(
-        animales: [
-          animal('pesado', peso: 200),
-          animal('sinPesar'),
-        ],
-        forma: FormaCalculo.porKilo,
-        precioPorKilo: 60,
-        montoTotal: 20000,
-      );
-
-      final pesado = r.firstWhere((c) => c.animalId == 'pesado');
-      final sinPesar = r.firstWhere((c) => c.animalId == 'sinPesar');
-
-      expect(pesado.esProrrateado, isFalse);
-      expect(pesado.costoBase, 12000);
-
-      expect(sinPesar.esProrrateado, isTrue);
-      expect(sinPesar.costoBase, 8000); // lo que sobro del total
-    });
-  });
-
-  group('compra por cabeza', () {
-    test('reparte parejo y lo marca como prorrateado', () {
-      final r = calcularCostosLote(
-        animales: [animal('a'), animal('b'), animal('c')],
-        forma: FormaCalculo.porCabeza,
-        montoTotal: 30000,
-      );
-
-      expect(r.every((c) => c.costoBase == 10000), isTrue);
-      expect(r.every((c) => c.esProrrateado), isTrue);
-    });
-  });
-
-  group('precio individual', () {
-    test('gana sobre el calculo por kilo', () {
-      final r = calcularCostosLote(
-        animales: [
-          animal('negociado', peso: 200, individual: 9000),
-          animal('normal', peso: 200),
-        ],
-        forma: FormaCalculo.porKilo,
-        precioPorKilo: 60,
-        montoTotal: 21000,
-      );
-
-      expect(r[0].costoBase, 9000);
-      expect(r[0].esProrrateado, isFalse);
-      expect(r[1].costoBase, 12000);
+    test('sin pesar no se sabe, y no se inventa un numero', () {
+      // Es el caso que motivo quitar el prorrateo: un hueco visible se tapa
+      // yendo a pesar al animal; una cifra falsa se arrastra para siempre.
+      final c = costoDelAnimal(const CompraDeAnimal(
+        forma: FormaCotizacion.porKilo,
+        precioPorKilo: 62,
+      ));
+      expect(c.seSabe, isFalse);
+      expect(c.total, isNull);
+      expect(c.falta, FaltaDato.peso);
     });
 
-    test('gana sobre el reparto por cabeza', () {
-      final r = calcularCostosLote(
-        animales: [animal('caro', individual: 15000), animal('resto')],
-        forma: FormaCalculo.porCabeza,
-        montoTotal: 25000,
-      );
-
-      expect(r[0].costoBase, 15000);
-      expect(r[0].esProrrateado, isFalse);
-      expect(r[1].costoBase, 10000); // lo que quedo del total
-    });
-  });
-
-  group('la suma tiene que cuadrar con lo que se pago', () {
-    test('por cabeza', () {
-      final r = calcularCostosLote(
-        animales: [animal('a'), animal('b'), animal('c')],
-        forma: FormaCalculo.porCabeza,
-        montoTotal: 31000,
-        gastos: 3000,
-      );
-      expect(sumaTotal(r), closeTo(34000, 0.001));
+    test('sin precio tampoco se sabe, y lo dice', () {
+      final c = costoDelAnimal(const CompraDeAnimal(
+        forma: FormaCotizacion.porKilo,
+        pesoCompraKg: 212,
+      ));
+      expect(c.falta, FaltaDato.precio);
     });
 
-    test('por kilo, con todos pesados', () {
-      final r = calcularCostosLote(
-        animales: [animal('a', peso: 200), animal('b', peso: 300)],
-        forma: FormaCalculo.porKilo,
-        precioPorKilo: 60,
-        montoTotal: 30000,
-        gastos: 2000,
-      );
-      expect(sumaTotal(r), closeTo(32000, 0.001));
-    });
-
-    test('por kilo, con uno sin pesar', () {
-      final r = calcularCostosLote(
-        animales: [animal('a', peso: 200), animal('b')],
-        forma: FormaCalculo.porKilo,
-        precioPorKilo: 60,
-        montoTotal: 20000,
-        gastos: 1000,
-      );
-      expect(sumaTotal(r), closeTo(21000, 0.001));
-    });
-  });
-
-  group('gastos del lote', () {
-    test('por cabeza se reparten parejo', () {
-      final r = calcularCostosLote(
-        animales: [animal('a', peso: 100), animal('b', peso: 300)],
-        forma: FormaCalculo.porCabeza,
-        montoTotal: 20000,
-        gastos: 2000,
-      );
-      expect(r[0].gastosAsignados, 1000);
-      expect(r[1].gastosAsignados, 1000);
-    });
-
-    test('por kilo cargan mas al animal mas pesado', () {
-      final r = calcularCostosLote(
-        animales: [animal('a', peso: 100), animal('b', peso: 300)],
-        forma: FormaCalculo.porKilo,
-        precioPorKilo: 50,
-        montoTotal: 20000,
-        gastos: 2000,
-        prorrateoGastos: FormaProrrateo.porKilo,
-      );
-      expect(r[0].gastosAsignados, closeTo(500, 0.001));  // 100 de 400 kg
-      expect(r[1].gastosAsignados, closeTo(1500, 0.001)); // 300 de 400 kg
-    });
-
-    test('si se pide por kilo pero no hay pesos, cae a por cabeza', () {
-      // Antes que dividir entre cero o dejar los gastos fuera de la cuenta.
-      final r = calcularCostosLote(
-        animales: [animal('a'), animal('b')],
-        forma: FormaCalculo.porCabeza,
-        montoTotal: 20000,
-        gastos: 2000,
-        prorrateoGastos: FormaProrrateo.porKilo,
-      );
-      expect(r[0].gastosAsignados, 1000);
-      expect(r[1].gastosAsignados, 1000);
-    });
-  });
-
-  group('casos que no deben reventar', () {
-    test('un lote vacio no truena', () {
+    test('un peso o un precio en cero se tratan como si faltaran', () {
       expect(
-        calcularCostosLote(
-          animales: const [],
-          forma: FormaCalculo.porCabeza,
-          montoTotal: 10000,
-        ),
-        isEmpty,
+        costoDelAnimal(const CompraDeAnimal(
+          forma: FormaCotizacion.porKilo,
+          precioPorKilo: 0,
+          pesoCompraKg: 212,
+        )).falta,
+        FaltaDato.precio,
+      );
+      expect(
+        costoDelAnimal(const CompraDeAnimal(
+          forma: FormaCotizacion.porKilo,
+          precioPorKilo: 62,
+          pesoCompraKg: 0,
+        )).falta,
+        FaltaDato.peso,
       );
     });
+  });
 
-    test('nunca hay costos negativos', () {
-      // Los precios individuales se pasaron del total del lote: alguien se
-      // equivoco capturando. El reparto se va a cero, no a negativo.
-      final r = calcularCostosLote(
-        animales: [animal('caro', individual: 50000), animal('resto')],
-        forma: FormaCalculo.porCabeza,
-        montoTotal: 30000,
-      );
-      expect(r[1].costoBase, 0);
-      expect(r.every((c) => c.total >= 0), isTrue);
+  group('cotizado por cabeza', () {
+    test('el costo es el precio de ese animal', () {
+      final c = costoDelAnimal(const CompraDeAnimal(
+        forma: FormaCotizacion.porCabeza,
+        precioPorCabeza: 9500,
+      ));
+      expect(c.total, 9500);
     });
 
-    test('sin gastos, nadie carga gastos', () {
-      final r = calcularCostosLote(
-        animales: [animal('a'), animal('b')],
-        forma: FormaCalculo.porCabeza,
-        montoTotal: 20000,
-      );
-      expect(r.every((c) => c.gastosAsignados == 0), isTrue);
+    test('no depende del peso', () {
+      final c = costoDelAnimal(const CompraDeAnimal(
+        forma: FormaCotizacion.porCabeza,
+        precioPorCabeza: 9500,
+        pesoCompraKg: 180,
+      ));
+      expect(c.total, 9500);
     });
 
-    test('por kilo sin precio por kilo cae al reparto y lo marca', () {
-      final r = calcularCostosLote(
-        animales: [animal('a', peso: 200), animal('b', peso: 300)],
-        forma: FormaCalculo.porKilo,
-        montoTotal: 25000,
-      );
-      expect(r.every((c) => c.esProrrateado), isTrue);
-      expect(sumaTotal(r), closeTo(25000, 0.001));
+    test('sin precio no se sabe', () {
+      final c = costoDelAnimal(const CompraDeAnimal(
+        forma: FormaCotizacion.porCabeza,
+        pesoCompraKg: 180,
+      ));
+      expect(c.falta, FaltaDato.precio);
+    });
+  });
+
+  group('sumar lo de un viaje', () {
+    test('suma solo lo que se sabe y cuenta aparte lo que falta', () {
+      // Un total que incluyera ceros por los que faltan se leeria como si
+      // estuviera completo, y no lo esta.
+      final r = sumaCostos([
+        const CostoAnimal.conocido(13144),
+        const CostoAnimal.conocido(9500),
+        const CostoAnimal.desconocido(FaltaDato.peso),
+      ]);
+      expect(r.total, closeTo(22644, 0.001));
+      expect(r.conocidos, 2);
+      expect(r.desconocidos, 1);
+    });
+
+    test('una lista vacia da cero sin reventar', () {
+      final r = sumaCostos([]);
+      expect(r.total, 0);
+      expect(r.conocidos, 0);
+      expect(r.desconocidos, 0);
+    });
+
+    test('si no se sabe ninguno, el total es cero pero se ve que falta todo',
+        () {
+      final r = sumaCostos([
+        const CostoAnimal.desconocido(FaltaDato.peso),
+        const CostoAnimal.desconocido(FaltaDato.precio),
+      ]);
+      expect(r.total, 0);
+      expect(r.conocidos, 0);
+      expect(r.desconocidos, 2);
+    });
+  });
+
+  group('lo propio gana sobre lo heredado', () {
+    test('el vendedor del animal manda sobre el de la compra', () {
+      // En un mismo viaje se le pueden comprar dos becerros a un senor y tres
+      // a otro. El animal que traiga vendedor propio usa el suyo.
+      expect(propioOHeredado('Don Chuy', 'Don Beto'), 'Don Chuy');
+    });
+
+    test('sin dato propio se hereda el de la compra', () {
+      expect(propioOHeredado(null, 'Don Beto'), 'Don Beto');
+    });
+
+    test('si no hay ninguno de los dos, no hay dato', () {
+      expect(propioOHeredado<String>(null, null), isNull);
+    });
+
+    test('sirve igual para el precio', () {
+      expect(propioOHeredado<double>(70, 62), 70);
+      expect(propioOHeredado<double>(null, 62), 62);
     });
   });
 }

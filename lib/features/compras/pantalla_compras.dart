@@ -48,9 +48,10 @@ class PantallaCompras extends StatelessWidget {
                             padding: EdgeInsets.all(28),
                             child: Text(
                               'Todavia no hay compras registradas.\n\n'
-                              'Registra la compra una vez —vendedor, precio y '
-                              'gastos— y luego le vas metiendo los animales '
-                              'escaneando.',
+                              'Registra el viaje una vez —vendedor, lugar y '
+                              'precio— y luego le vas metiendo los animales. '
+                              'Al que se le haya comprado a otro, se le cambia '
+                              'el vendedor.',
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                 fontSize: 18,
@@ -113,9 +114,9 @@ class _Renglon extends StatelessWidget {
       subtitle: Padding(
         padding: const EdgeInsets.only(top: 4),
         child: Text(
-          '${formateaAaaammdd(lote.fecha)}  ·  '
-          '\$${lote.montoTotal.toStringAsFixed(2)}  ·  '
-          '${lote.formaCalculo == 'porKilo' ? 'por kilo' : 'por cabeza'}',
+          '${formateaAaaammdd(lote.fecha)}'
+          '${lote.lugar == null ? '' : '  ·  ${lote.lugar}'}  ·  '
+          '${lote.formaCalculo == 'porKilo' ? 'por kilo a \$${lote.precioPorKilo?.toStringAsFixed(2) ?? '?'}' : 'por cabeza'}',
           style: const TextStyle(fontSize: 17, color: Paleta.textoSuave),
         ),
       ),

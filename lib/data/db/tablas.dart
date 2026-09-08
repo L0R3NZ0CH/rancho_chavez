@@ -237,35 +237,32 @@ class Configuracion extends Table {
   Set<Column> get primaryKey => {clave};
 }
 
-/// Un lote de compra: lo que llego en un camion, de un vendedor, un dia.
+/// Una compra: un viaje, un dia, un lugar.
 ///
-/// La compra se captura una vez y los animales se le van metiendo escaneando.
-/// Si el vendedor y el precio vivieran dentro del alta de cada animal, habria
-/// que teclear lo mismo ochenta veces y se perderian los quince segundos por
-/// cabeza que costo ganar.
+/// **No es un camion de un solo dueno.** En un mismo viaje se le pueden comprar
+/// dos becerros a un senor y tres a otro, cada uno con su trato. Por eso lo que
+/// vive aqui son los datos que se repiten —lugar, y el vendedor y el precio mas
+/// probables— y cada animal puede traer los suyos propios.
+///
+/// Tampoco hay total pagado ni gastos que repartir: con precio por animal no
+/// hay nada que prorratear, y el costo de cada cabeza es exacto.
 @DataClassName('LoteCompra')
 class LotesCompra extends Table with Auditoria {
   IntColumn get fecha => integer()();
 
+  /// El vendedor mas comun del viaje. Cada animal puede traer otro.
+  ///
   /// Texto libre con autocompletado del historial, no catalogo: dar de alta un
   /// proveedor antes de poder registrar la compra es friccion sin beneficio.
   TextColumn get vendedor => text()();
 
   TextColumn get lugar => text().nullable()();
 
-  /// 'porKilo' o 'porCabeza'.
+  /// 'porKilo' o 'porCabeza'. Es el valor que heredan los animales del viaje.
   TextColumn get formaCalculo => text()();
 
-  /// Cuando la compra fue por kilo. Es lo que multiplica al peso de recepcion.
+  /// Precio del kilo del viaje, cuando se cotiza por kilo.
   RealColumn get precioPorKilo => real().nullable()();
-
-  /// Lo pagado por los animales, sin contar flete ni comision.
-  RealColumn get montoTotal => real()();
-
-  /// Como se reparten los gastos: 'porKilo' o 'porCabeza'. Se elige lote por
-  /// lote, no es una regla del rancho.
-  TextColumn get formaProrrateoGastos =>
-      text().withDefault(const Constant('porCabeza'))();
 
   TextColumn get notas => text().nullable()();
 
@@ -273,32 +270,32 @@ class LotesCompra extends Table with Auditoria {
   Set<Column> get primaryKey => {id};
 }
 
-/// Flete, comision, documentacion. Se reparten entre los animales del lote,
-/// aparte del precio de los animales.
-@DataClassName('GastoCompra')
-class LoteCompraGastos extends Table with Auditoria {
-  TextColumn get loteCompraId => text().references(LotesCompra, #id)();
-  TextColumn get concepto => text()();
-  RealColumn get monto => real()();
-
-  @override
-  Set<Column> get primaryKey => {id};
-}
-
-/// Que animales trajo el lote.
+/// Que animales trajo el viaje, y con que trato vino cada uno.
+///
+/// Los campos nulables son **lo propio de este animal**: si estan vacios, se
+/// hereda lo de la compra. Asi, cinco becerros del mismo senor no obligan a
+/// teclear cinco veces lo mismo, y los que vinieron de otro dueno se corrigen
+/// uno por uno.
 ///
 /// El peso de recepcion no vive aqui: es un evento de peso con tipo 'compra',
-/// porque es una medicion y le toca la regla 4. Lo que si vive aqui es el
-/// precio individual, que es una condicion del trato y no una medicion.
+/// porque es una medicion y le toca la regla 4. Lo que si vive aqui son las
+/// condiciones del trato, que no son mediciones.
 @DataClassName('AnimalComprado')
 class LoteCompraAnimales extends Table with Auditoria {
   TextColumn get loteCompraId => text().references(LotesCompra, #id)();
   TextColumn get animalId => text().references(Animales, #id)();
 
-  /// Precio negociado para este animal en concreto, cuando lo hubo. El precio
-  /// varia por temporada y por peso final, asi que dentro de un mismo lote
-  /// puede haber animales a precios distintos.
-  RealColumn get costoIndividual => real().nullable()();
+  /// Vendedor propio de este animal. Nulo = el de la compra.
+  TextColumn get vendedor => text().nullable()();
+
+  /// 'porKilo' o 'porCabeza' propios. Nulo = el de la compra.
+  TextColumn get formaCalculo => text().nullable()();
+
+  /// Precio del kilo propio. Nulo = el de la compra.
+  RealColumn get precioPorKilo => real().nullable()();
+
+  /// Lo que costo este animal, cuando se cotizo por cabeza.
+  RealColumn get precioPorCabeza => real().nullable()();
 
   @override
   Set<Column> get primaryKey => {id};
