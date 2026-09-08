@@ -13,7 +13,8 @@ const _uuid = Uuid();
 /// Version 1: la bitacora de la prueba de campo de la fase 1.
 /// Version 2: el esquema del hato. Aqui empieza el compromiso de no perder
 ///            datos nunca mas.
-const versionEsquema = 2;
+/// Version 3: lotes de compra, sus gastos y sus animales. Solo agrega tablas.
+const versionEsquema = 3;
 
 @DriftDatabase(
   tables: [
@@ -27,6 +28,9 @@ const versionEsquema = 2;
     EventoCorreccionCategorias,
     Fotos,
     Configuracion,
+    LotesCompra,
+    LoteCompraGastos,
+    LoteCompraAnimales,
   ],
 )
 class BaseDatos extends _$BaseDatos {
@@ -50,20 +54,33 @@ class BaseDatos extends _$BaseDatos {
         onUpgrade: (m, desde, hasta) async {
           // Nunca deleteAllTables(). Ese atajo borra los datos del rancho y es
           // facil dejarlo puesto sin darse cuenta.
-          if (desde == 1) {
+          // Los pasos se aplican en orden y sin return temprano, para que una
+          // base que se quedo en la version 1 pueda llegar hasta la ultima
+          // pasando por todas las etapas.
+          if (desde <= 1) {
             // La tabla de la prueba de campo era desechable por acuerdo: solo
             // guardaba lecturas de aretes para medir si la camara alcanzaba.
             // Es el unico borrado de datos que este proyecto va a hacer.
             await m.deleteTable('lecturas_prueba');
-            await m.createAll();
-            return;
           }
 
-          throw UnsupportedError(
-            'No hay migracion definida de la version $desde a la $hasta. '
-            'Toda migracion de la version 2 en adelante debe escribirse aqui, '
-            'con su prueba, antes de subir schemaVersion.',
-          );
+          if (desde <= 2) {
+            // Compras: solo agrega tablas, no toca ni una fila existente.
+            await m.createTable(lotesCompra);
+            await m.createTable(loteCompraGastos);
+            await m.createTable(loteCompraAnimales);
+          }
+
+          if (hasta > versionEsquema) {
+            throw UnsupportedError(
+              'No hay migracion definida hasta la version $hasta. Toda '
+              'migracion debe escribirse aqui, con su prueba, antes de subir '
+              'schemaVersion.',
+            );
+          }
+
+          // Crea lo que falte de las versiones intermedias.
+          await m.createAll();
         },
         beforeOpen: (detalles) async {
           await customStatement('PRAGMA foreign_keys = ON');
@@ -441,6 +458,160 @@ class BaseDatos extends _$BaseDatos {
       ),
     );
     return s.id;
+  }
+
+  // -------------------------------------------------------------------------
+  // Compras
+  // -------------------------------------------------------------------------
+
+  Future<String> crearLoteCompra({
+    required int fecha,
+    required String vendedor,
+    required String formaCalculo,
+    required double montoTotal,
+    double? precioPorKilo,
+    String? lugar,
+    String formaProrrateoGastos = 'porCabeza',
+    String? notas,
+  }) async {
+    final s = await _sello();
+    await into(lotesCompra).insert(
+      LotesCompraCompanion.insert(
+        id: s.id,
+        creadoEn: s.ahora,
+        modificadoEn: s.ahora,
+        dispositivoId: s.dispositivo,
+        fecha: fecha,
+        vendedor: vendedor,
+        formaCalculo: formaCalculo,
+        montoTotal: montoTotal,
+        precioPorKilo: Value(precioPorKilo),
+        lugar: Value(lugar),
+        formaProrrateoGastos: Value(formaProrrateoGastos),
+        notas: Value(notas),
+      ),
+    );
+    return s.id;
+  }
+
+  Future<String> agregarGastoCompra({
+    required String loteCompraId,
+    required String concepto,
+    required double monto,
+  }) async {
+    final s = await _sello();
+    await into(loteCompraGastos).insert(
+      LoteCompraGastosCompanion.insert(
+        id: s.id,
+        creadoEn: s.ahora,
+        modificadoEn: s.ahora,
+        dispositivoId: s.dispositivo,
+        loteCompraId: loteCompraId,
+        concepto: concepto,
+        monto: monto,
+      ),
+    );
+    return s.id;
+  }
+
+  Future<String> agregarAnimalALote({
+    required String loteCompraId,
+    required String animalId,
+    double? costoIndividual,
+  }) async {
+    final s = await _sello();
+    await into(loteCompraAnimales).insert(
+      LoteCompraAnimalesCompanion.insert(
+        id: s.id,
+        creadoEn: s.ahora,
+        modificadoEn: s.ahora,
+        dispositivoId: s.dispositivo,
+        loteCompraId: loteCompraId,
+        animalId: animalId,
+        costoIndividual: Value(costoIndividual),
+      ),
+    );
+    return s.id;
+  }
+
+  Stream<List<LoteCompra>> verLotesCompra() {
+    return (select(lotesCompra)
+          ..where((l) => l.eliminadoEn.isNull())
+          ..orderBy([
+            (l) => OrderingTerm(expression: l.fecha, mode: OrderingMode.desc),
+          ]))
+        .watch();
+  }
+
+  Future<LoteCompra?> loteCompra(String id) =>
+      (select(lotesCompra)..where((l) => l.id.equals(id))).getSingleOrNull();
+
+  Future<List<AnimalComprado>> animalesDelLote(String loteCompraId) =>
+      (select(loteCompraAnimales)
+            ..where((a) =>
+                a.loteCompraId.equals(loteCompraId) & a.eliminadoEn.isNull()))
+          .get();
+
+  Future<List<GastoCompra>> gastosDelLote(String loteCompraId) =>
+      (select(loteCompraGastos)
+            ..where((g) =>
+                g.loteCompraId.equals(loteCompraId) & g.eliminadoEn.isNull()))
+          .get();
+
+  /// El peso de recepcion de un animal: su pesaje con tipo 'compra'.
+  ///
+  /// Es lo que vuelve real el costo por cabeza en las compras por kilo, en vez
+  /// de un reparto del total del camion.
+  Future<double?> pesoDeCompra(String animalId) async {
+    final consulta = select(eventos).join([
+      innerJoin(eventoPesos, eventoPesos.eventoId.equalsExp(eventos.id)),
+    ])
+      ..where(
+        eventos.animalId.equals(animalId) &
+            eventos.eliminadoEn.isNull() &
+            eventoPesos.tipoPesaje.equals('compra'),
+      )
+      ..orderBy([
+        OrderingTerm(expression: eventos.fechaEvento, mode: OrderingMode.desc),
+        OrderingTerm(expression: eventos.creadoEn, mode: OrderingMode.desc),
+      ])
+      ..limit(1);
+
+    final fila = await consulta.getSingleOrNull();
+    return fila?.readTable(eventoPesos).kilos;
+  }
+
+  /// Fija el precio negociado de un animal dentro de un lote.
+  ///
+  /// Gana sobre el calculo del lote, porque el precio varia por temporada y
+  /// por peso final y dentro de un mismo camion puede haber tratos distintos.
+  Future<void> fijarCostoIndividual({
+    required String loteCompraId,
+    required String animalId,
+    required double? costo,
+  }) async {
+    await (update(loteCompraAnimales)
+          ..where((t) =>
+              t.loteCompraId.equals(loteCompraId) &
+              t.animalId.equals(animalId)))
+        .write(
+      LoteCompraAnimalesCompanion(
+        costoIndividual: Value(costo),
+        modificadoEn: Value(ahoraUtcMs()),
+      ),
+    );
+  }
+
+  /// Vendedores ya usados, para autocompletar sin catalogo previo.
+  Future<List<String>> vendedoresUsados() async {
+    final filas = await (selectOnly(lotesCompra, distinct: true)
+          ..addColumns([lotesCompra.vendedor])
+          ..where(lotesCompra.eliminadoEn.isNull()))
+        .get();
+    return filas
+        .map((f) => f.read(lotesCompra.vendedor))
+        .whereType<String>()
+        .toList();
   }
 
   /// Borrado logico (regla 3). El renglon se queda; solo se marca la fecha.

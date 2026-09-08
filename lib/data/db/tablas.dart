@@ -236,3 +236,70 @@ class Configuracion extends Table {
   @override
   Set<Column> get primaryKey => {clave};
 }
+
+/// Un lote de compra: lo que llego en un camion, de un vendedor, un dia.
+///
+/// La compra se captura una vez y los animales se le van metiendo escaneando.
+/// Si el vendedor y el precio vivieran dentro del alta de cada animal, habria
+/// que teclear lo mismo ochenta veces y se perderian los quince segundos por
+/// cabeza que costo ganar.
+@DataClassName('LoteCompra')
+class LotesCompra extends Table with Auditoria {
+  IntColumn get fecha => integer()();
+
+  /// Texto libre con autocompletado del historial, no catalogo: dar de alta un
+  /// proveedor antes de poder registrar la compra es friccion sin beneficio.
+  TextColumn get vendedor => text()();
+
+  TextColumn get lugar => text().nullable()();
+
+  /// 'porKilo' o 'porCabeza'.
+  TextColumn get formaCalculo => text()();
+
+  /// Cuando la compra fue por kilo. Es lo que multiplica al peso de recepcion.
+  RealColumn get precioPorKilo => real().nullable()();
+
+  /// Lo pagado por los animales, sin contar flete ni comision.
+  RealColumn get montoTotal => real()();
+
+  /// Como se reparten los gastos: 'porKilo' o 'porCabeza'. Se elige lote por
+  /// lote, no es una regla del rancho.
+  TextColumn get formaProrrateoGastos =>
+      text().withDefault(const Constant('porCabeza'))();
+
+  TextColumn get notas => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+/// Flete, comision, documentacion. Se reparten entre los animales del lote,
+/// aparte del precio de los animales.
+@DataClassName('GastoCompra')
+class LoteCompraGastos extends Table with Auditoria {
+  TextColumn get loteCompraId => text().references(LotesCompra, #id)();
+  TextColumn get concepto => text()();
+  RealColumn get monto => real()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+/// Que animales trajo el lote.
+///
+/// El peso de recepcion no vive aqui: es un evento de peso con tipo 'compra',
+/// porque es una medicion y le toca la regla 4. Lo que si vive aqui es el
+/// precio individual, que es una condicion del trato y no una medicion.
+@DataClassName('AnimalComprado')
+class LoteCompraAnimales extends Table with Auditoria {
+  TextColumn get loteCompraId => text().references(LotesCompra, #id)();
+  TextColumn get animalId => text().references(Animales, #id)();
+
+  /// Precio negociado para este animal en concreto, cuando lo hubo. El precio
+  /// varia por temporada y por peso final, asi que dentro de un mismo lote
+  /// puede haber animales a precios distintos.
+  RealColumn get costoIndividual => real().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}

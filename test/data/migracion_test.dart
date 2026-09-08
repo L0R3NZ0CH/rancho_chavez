@@ -135,6 +135,89 @@ void main() {
     expect(await segunda.leerAjuste('dispositivoId'), 'el-mismo-de-siempre');
   });
 
+  group('de la version 2 a la 3: compras', () {
+    /// Deja una base ya migrada a la version 2, con datos del rancho dentro.
+    Future<String> baseVersion2ConDatos(String ruta) async {
+      crearBaseVersion1(ruta);
+      final db = BaseDatos(NativeDatabase(File(ruta)));
+      final potrero =
+          await db.crearUbicacion(nombre: 'El Zacatal', tipo: 'potrero');
+      final animal = await db.altaAnimal(
+        sexo: 'hembra',
+        origen: 'comprado',
+        proposito: 'comercial',
+        ubicacionId: potrero,
+        fecha: 20260908,
+        numeroArete: '001409870222',
+      );
+      await db.registrarPeso(
+        animalId: animal,
+        kilos: 212,
+        fecha: 20260908,
+        tipoPesaje: 'compra',
+      );
+      await db.close();
+      return animal;
+    }
+
+    test('no pierde ni un animal, ni un arete, ni un pesaje', () async {
+      // Esta es la primera migracion que corre sobre datos reales del rancho.
+      // De la version 2 en adelante, perder una fila es inaceptable.
+      final ruta = rutaNueva('ganado.sqlite');
+      final animal = await baseVersion2ConDatos(ruta);
+
+      final db = BaseDatos(NativeDatabase(File(ruta)));
+      addTearDown(db.close);
+
+      expect((await db.verAnimales().first).single.id, animal);
+      expect((await db.animalPorArete('001409870222'))!.id, animal);
+      expect(await db.pesoDeCompra(animal), 212);
+      expect(await db.leerAjuste('dispositivoId'), 'el-mismo-de-siempre');
+    });
+
+    test('deja listas las tablas de compras y se puede registrar una',
+        () async {
+      final ruta = rutaNueva('ganado.sqlite');
+      final animal = await baseVersion2ConDatos(ruta);
+
+      final db = BaseDatos(NativeDatabase(File(ruta)));
+      addTearDown(db.close);
+
+      final lote = await db.crearLoteCompra(
+        fecha: 20260908,
+        vendedor: 'Don Chuy',
+        formaCalculo: 'porKilo',
+        precioPorKilo: 62,
+        montoTotal: 13144,
+      );
+      await db.agregarAnimalALote(loteCompraId: lote, animalId: animal);
+      await db.agregarGastoCompra(
+        loteCompraId: lote,
+        concepto: 'flete',
+        monto: 1500,
+      );
+
+      expect((await db.verLotesCompra().first).single.vendedor, 'Don Chuy');
+      expect(await db.animalesDelLote(lote), hasLength(1));
+      expect((await db.gastosDelLote(lote)).single.monto, 1500);
+      expect(await db.vendedoresUsados(), ['Don Chuy']);
+    });
+
+    test('una base que se quedo en la version 1 llega hasta la 3', () async {
+      // Alguien que no abrio la app en dos versiones tiene que poder ponerse
+      // al dia de un jalon, pasando por todos los pasos intermedios.
+      final ruta = rutaNueva('ganado.sqlite');
+      crearBaseVersion1(ruta);
+
+      final db = BaseDatos(NativeDatabase(File(ruta)));
+      addTearDown(db.close);
+      await db.verAnimales().first;
+
+      expect(await db.leerAjuste('dispositivoId'), 'el-mismo-de-siempre');
+      expect(await db.verLotesCompra().first, isEmpty);
+    });
+  });
+
   group('respaldo previo a migrar', () {
     test('copia el archivo cuando hay una migracion pendiente', () async {
       final ruta = rutaNueva('ganado.sqlite');
@@ -142,7 +225,7 @@ void main() {
 
       final copia = await respaldarAntesDeMigrar(
         ruta: ruta,
-        versionObjetivo: 2,
+        versionObjetivo: versionEsquema,
       );
 
       expect(copia, isNotNull);
@@ -167,7 +250,10 @@ void main() {
       await db.close();
 
       expect(
-        await respaldarAntesDeMigrar(ruta: ruta, versionObjetivo: 2),
+        await respaldarAntesDeMigrar(
+          ruta: ruta,
+          versionObjetivo: versionEsquema,
+        ),
         isNull,
       );
     });
@@ -176,7 +262,7 @@ void main() {
       expect(
         await respaldarAntesDeMigrar(
           ruta: rutaNueva('no-existe.sqlite'),
-          versionObjetivo: 2,
+          versionObjetivo: versionEsquema,
         ),
         isNull,
       );

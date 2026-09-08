@@ -37,8 +37,8 @@ void main() {
     );
   }
 
-  test('el esquema se crea en la version 2', () async {
-    expect(db.schemaVersion, 2);
+  test('el esquema se crea en la version vigente', () async {
+    expect(db.schemaVersion, versionEsquema);
     expect(await db.verAnimales().first, isEmpty);
   });
 

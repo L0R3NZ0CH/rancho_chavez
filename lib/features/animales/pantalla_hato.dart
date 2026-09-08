@@ -6,6 +6,7 @@ import '../../data/db/base_datos.dart';
 import '../../data/repos/hato.dart';
 import '../../domain/reglas/estado_animal.dart';
 import '../../data/respaldo.dart';
+import '../compras/pantalla_compras.dart';
 import '../escaneo/pantalla_escaneo.dart';
 import '../respaldo/pantalla_respaldo.dart';
 import 'pantalla_alta.dart';
@@ -138,6 +139,17 @@ class _PantallaHatoState extends State<PantallaHato> {
               todo.isEmpty ? 'El hato' : '${todo.length} animales',
             ),
             actions: [
+              IconButton(
+                tooltip: 'Compras',
+                iconSize: 30,
+                icon: const Icon(Icons.local_shipping_outlined),
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => PantallaCompras(db: widget.db),
+                  ),
+                ),
+              ),
               IconButton(
                 tooltip: 'Respaldar',
                 iconSize: 30,
