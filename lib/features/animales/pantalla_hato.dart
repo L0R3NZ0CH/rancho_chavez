@@ -80,7 +80,7 @@ class _PantallaHatoState extends State<PantallaHato> {
       builder: (c) => AlertDialog(
         title: const Text('Arete no registrado'),
         content: Text(
-          'El arete $numero no esta en el sistema. '
+          'El arete $numero no está en el sistema. '
           'Puedes dar de alta un animal nuevo con ese numero.',
           style: const TextStyle(fontSize: 17),
         ),
@@ -187,7 +187,7 @@ class _PantallaHatoState extends State<PantallaHato> {
                     decoration: const InputDecoration(
                       prefixIcon: Icon(Icons.search, size: 26),
                       border: OutlineInputBorder(),
-                      hintText: 'Buscar por numero o apodo',
+                      hintText: 'Buscar por número o apodo',
                       isDense: true,
                       contentPadding: EdgeInsets.symmetric(vertical: 16),
                     ),
@@ -278,7 +278,7 @@ class _PantallaHatoState extends State<PantallaHato> {
 enum _Apartado {
   todos('Todos'),
   pendientes('Pendientes de aretar'),
-  cambiaron('Cambiaron de categoria');
+  cambiaron('Cambiaron de categoría');
 
   const _Apartado(this.etiqueta);
   final String etiqueta;
@@ -374,10 +374,10 @@ class _Vacio extends StatelessWidget {
         padding: const EdgeInsets.all(28),
         child: Text(
           hayAnimales
-              ? 'Ningun animal cae en este apartado.'
-              : 'Todavia no hay animales.\n\n'
+              ? 'Ningún animal cae en este apartado.'
+              : 'Todavía no hay animales.\n\n'
                   'Escanea un arete para dar de alta al primero, o usa NUEVO '
-                  'si el animal llego sin identificar.',
+                  'si el animal llegó sin identificar.',
           textAlign: TextAlign.center,
           style: const TextStyle(fontSize: 18, color: Paleta.textoSuave),
         ),
@@ -434,8 +434,8 @@ class _Renglon extends StatelessWidget {
             if (peso != null)
               Text(
                 '${peso.toStringAsFixed(0)} kg'
-                '${datos.ultimoPesoFecha == null ? '' : '  ·  hace '
-                    '${diasEntre(datos.ultimoPesoFecha!, hoy)} dias'}',
+                '${datos.ultimoPesoFecha == null ? '' : '  ·  '
+                    '${diasEnPalabras(diasEntre(datos.ultimoPesoFecha!, hoy))}'}',
                 style: const TextStyle(
                   fontSize: 19,
                   fontWeight: FontWeight.w700,

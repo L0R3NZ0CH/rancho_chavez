@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../comun/confirmar.dart';
 import '../../comun/fechas.dart';
 import '../../comun/tema.dart';
 import '../../data/db/base_datos.dart';
@@ -48,6 +49,12 @@ class PantallaFicha extends StatelessWidget {
                   icon: const Icon(Icons.label_outline),
                   onPressed: () => _ponerArete(context),
                 ),
+              IconButton(
+                tooltip: 'Borrar el animal',
+                iconSize: 30,
+                icon: const Icon(Icons.delete_outline),
+                onPressed: () => _borrar(context, datos.titulo),
+              ),
             ],
           ),
           body: SafeArea(
@@ -70,6 +77,21 @@ class PantallaFicha extends StatelessWidget {
         );
       },
     );
+  }
+
+  /// Borrado logico: el animal sale de las listas pero su historial se queda
+  /// en la base, porque nada se borra de verdad (regla 3).
+  Future<void> _borrar(BuildContext context, String titulo) async {
+    final confirmado = await confirmarBorrado(
+      context,
+      titulo: 'Borrar este animal',
+      mensaje: '$titulo sale del hato y de los conteos.\n\nSu historial se '
+          'conserva en la base por si hay que recuperarlo.',
+    );
+    if (!(confirmado ?? false) || !context.mounted) return;
+
+    await db.eliminarAnimal(animalId);
+    if (context.mounted) Navigator.pop(context);
   }
 
   Future<void> _ponerArete(BuildContext context) async {
@@ -127,7 +149,7 @@ class _Encabezado extends StatelessWidget {
             ),
             child: const Text(
               'PENDIENTE DE ARETAR\n'
-              'Usa el boton de arriba para ligarle el arete cuando se lo '
+              'Usa el botón de arriba para ligarle el arete cuando se lo '
               'pongas.',
               style: TextStyle(
                 color: Colors.white,
@@ -137,7 +159,7 @@ class _Encabezado extends StatelessWidget {
             ),
           ),
         const Text(
-          'ULTIMO PESO',
+          'ÚLTIMO PESO',
           style: TextStyle(
             fontSize: 14,
             letterSpacing: 1.2,
@@ -173,36 +195,36 @@ class _Encabezado extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(top: 4),
             child: Text(
-              'Pesado el ${formateaAaaammdd(datos.ultimoPesoFecha!)}  ·  hace '
-              '${diasEntre(datos.ultimoPesoFecha!, hoy)} dias',
+              'Pesado el ${formateaAaaammdd(datos.ultimoPesoFecha!)}  ·  '
+              '${diasEnPalabras(diasEntre(datos.ultimoPesoFecha!, hoy))}',
               style: const TextStyle(fontSize: 16, color: Paleta.textoSuave),
             ),
           ),
         const SizedBox(height: 18),
         _Dato(
-          etiqueta: 'Categoria',
+          etiqueta: 'Categoría',
           valor: datos.categoria.etiqueta +
               (datos.categoriaCorregida ? '  (puesta a mano)' : ''),
         ),
         if (datos.proximoCambioCategoria != null)
           _Dato(
-            etiqueta: 'Cambia de categoria',
+            etiqueta: 'Cambia de categoría',
             valor: formateaAaaammdd(datos.proximoCambioCategoria!),
           ),
         _Dato(
-          etiqueta: 'Donde esta',
+          etiqueta: 'Dónde está',
           valor: datos.ubicacionNombre == null
-              ? 'Sin ubicacion'
+              ? 'Sin ubicación'
               : '${datos.ubicacionNombre}'
-                  '${datos.enUbicacionDesde == null ? '' : '  ·  desde hace '
-                      '${diasEntre(datos.enUbicacionDesde!, hoy)} dias'}',
+                  '${datos.enUbicacionDesde == null ? '' : '  ·  llego '
+                      '${diasEnPalabras(diasEntre(datos.enUbicacionDesde!, hoy))}'}',
         ),
         _Dato(etiqueta: 'Sexo', valor: datos.animal.sexo),
         _Dato(etiqueta: 'Origen', valor: datos.animal.origen),
         if (datos.animal.apodo != null)
           _Dato(etiqueta: 'Apodo', valor: datos.animal.apodo!),
         if (datos.animal.descripcionFisica != null)
-          _Dato(etiqueta: 'Senas', valor: datos.animal.descripcionFisica!),
+          _Dato(etiqueta: 'Señas', valor: datos.animal.descripcionFisica!),
         if (datos.animal.nacimientoNota != null)
           _Dato(etiqueta: 'Edad', valor: datos.animal.nacimientoNota!),
       ],
@@ -335,7 +357,7 @@ class _Historial extends StatelessWidget {
         final eventos = snap.data ?? const <Evento>[];
         if (eventos.isEmpty) {
           return const Text(
-            'Sin eventos todavia.',
+            'Sin eventos todavía.',
             style: TextStyle(fontSize: 17, color: Paleta.textoSuave),
           );
         }
@@ -381,8 +403,8 @@ class _Historial extends StatelessWidget {
         'peso' => 'Pesaje',
         'destete' => 'Destete',
         'parto' => 'Parto',
-        'proposito' => 'Cambio de proposito',
-        'correccionCategoria' => 'Categoria corregida a mano',
+        'proposito' => 'Cambio de propósito',
+        'correccionCategoria' => 'Categoría corregida a mano',
         _ => tipo,
       };
 }

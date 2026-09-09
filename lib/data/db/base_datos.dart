@@ -612,6 +612,104 @@ class BaseDatos extends _$BaseDatos {
       ..sort();
   }
 
+  /// Quita un animal de una compra, sin borrar al animal.
+  ///
+  /// Es el caso de haberlo metido por error al viaje equivocado: el animal
+  /// sigue existiendo, solo deja de pertenecer a esa compra.
+  Future<void> quitarAnimalDeCompra({
+    required String loteCompraId,
+    required String animalId,
+  }) async {
+    final ahora = ahoraUtcMs();
+    await (update(loteCompraAnimales)
+          ..where((t) =>
+              t.loteCompraId.equals(loteCompraId) &
+              t.animalId.equals(animalId)))
+        .write(
+      LoteCompraAnimalesCompanion(
+        eliminadoEn: Value(ahora),
+        modificadoEn: Value(ahora),
+      ),
+    );
+  }
+
+  /// Borrado logico de una compra (regla 3).
+  ///
+  /// Los animales que trajo **no** se borran: siguen en el hato. Lo que se
+  /// pierde es el registro del viaje y de lo que costaron.
+  Future<void> eliminarCompra(String id) async {
+    final ahora = ahoraUtcMs();
+    await transaction(() async {
+      await (update(lotesCompra)..where((l) => l.id.equals(id))).write(
+        LotesCompraCompanion(
+          eliminadoEn: Value(ahora),
+          modificadoEn: Value(ahora),
+        ),
+      );
+      await (update(loteCompraAnimales)
+            ..where((a) => a.loteCompraId.equals(id)))
+          .write(
+        LoteCompraAnimalesCompanion(
+          eliminadoEn: Value(ahora),
+          modificadoEn: Value(ahora),
+        ),
+      );
+    });
+  }
+
+  /// Cuantos animales vivos hay en una ubicacion ahora mismo.
+  ///
+  /// Sirve para no dejar borrar un potrero que todavia tiene ganado parado.
+  Future<int> animalesEnUbicacion(String ubicacionId) async {
+    final movimientos = await (select(eventos).join([
+      innerJoin(
+        eventoMovimientos,
+        eventoMovimientos.eventoId.equalsExp(eventos.id),
+      ),
+    ])
+          ..where(eventos.eliminadoEn.isNull() &
+              eventos.tipo.equals('movimiento')))
+        .get();
+
+    // Ultimo movimiento por animal: gana la fecha del hecho, luego la captura.
+    final ultimo = <String, ({int fecha, int creado, String destino})>{};
+    for (final fila in movimientos) {
+      final e = fila.readTable(eventos);
+      final m = fila.readTable(eventoMovimientos);
+      final actual = ultimo[e.animalId];
+      if (actual == null ||
+          e.fechaEvento > actual.fecha ||
+          (e.fechaEvento == actual.fecha && e.creadoEn > actual.creado)) {
+        ultimo[e.animalId] = (
+          fecha: e.fechaEvento,
+          creado: e.creadoEn,
+          destino: m.ubicacionDestinoId,
+        );
+      }
+    }
+
+    final vivos = await (select(animales)
+          ..where((a) => a.eliminadoEn.isNull()))
+        .get();
+    final idsVivos = vivos.map((a) => a.id).toSet();
+
+    return ultimo.entries
+        .where((e) => idsVivos.contains(e.key))
+        .where((e) => e.value.destino == ubicacionId)
+        .length;
+  }
+
+  /// Borrado logico de una ubicacion (regla 3).
+  Future<void> eliminarUbicacion(String id) async {
+    final ahora = ahoraUtcMs();
+    await (update(ubicaciones)..where((u) => u.id.equals(id))).write(
+      UbicacionesCompanion(
+        eliminadoEn: Value(ahora),
+        modificadoEn: Value(ahora),
+      ),
+    );
+  }
+
   /// Borrado logico (regla 3). El renglon se queda; solo se marca la fecha.
   Future<void> eliminarAnimal(String id) async {
     final ahora = ahoraUtcMs();

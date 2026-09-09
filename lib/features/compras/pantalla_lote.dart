@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 
+import '../../comun/confirmar.dart';
 import '../../comun/fechas.dart';
 import '../../comun/tema.dart';
 import '../../data/db/base_datos.dart';
@@ -73,7 +74,7 @@ class _PantallaLoteCompraState extends State<PantallaLoteCompra> {
           const SnackBar(
             backgroundColor: Paleta.aviso,
             content: Text(
-              'Ese animal ya esta en esta compra.',
+              'Ese animal ya está en esta compra.',
               style: TextStyle(fontSize: 17),
             ),
           ),
@@ -103,6 +104,23 @@ class _PantallaLoteCompraState extends State<PantallaLoteCompra> {
     );
     if (id == null || !mounted) return;
     await _meterAlLote(id);
+  }
+
+  Future<void> _quitar(RenglonCompra r) async {
+    final confirmado = await confirmarBorrado(
+      context,
+      titulo: 'Quitar de esta compra',
+      mensaje: 'Se quita ${r.titulo} de este viaje.\n\nEl animal NO se borra: '
+          'sigue en el hato.',
+      etiquetaBoton: 'Quitar',
+    );
+    if (!(confirmado ?? false) || !mounted) return;
+
+    await widget.db.quitarAnimalDeCompra(
+      loteCompraId: widget.loteId,
+      animalId: r.animal.id,
+    );
+    await _cargar();
   }
 
   Future<void> _editarTrato(RenglonCompra r) async {
@@ -138,7 +156,7 @@ class _PantallaLoteCompraState extends State<PantallaLoteCompra> {
             ? const Center(child: CircularProgressIndicator())
             : compra == null
                 ? const Center(
-                    child: Text('No se encontro la compra',
+                    child: Text('No se encontró la compra',
                         style: TextStyle(fontSize: 18)),
                   )
                 : Column(
@@ -169,6 +187,8 @@ class _PantallaLoteCompraState extends State<PantallaLoteCompra> {
                                   ).then((_) => _cargar()),
                                   onTrato: () =>
                                       _editarTrato(compra.renglones[i]),
+                                  onQuitar: () =>
+                                      _quitar(compra.renglones[i]),
                                 ),
                               ),
                       ),
@@ -214,9 +234,9 @@ class _Vacio extends StatelessWidget {
       child: Padding(
         padding: EdgeInsets.all(28),
         child: Text(
-          'Todavia no hay animales en esta compra.\n\n'
+          'Todavía no hay animales en esta compra.\n\n'
           'Escanea el arete de cada uno, o usa SIN ARETE si llegaron sin '
-          'identificar. El vendedor y el precio ya estan puestos; solo se '
+          'identificar. El vendedor y el precio ya están puestos; solo se '
           'cambian a los que se hayan comprado aparte.',
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 18, color: Paleta.textoSuave),
@@ -315,11 +335,13 @@ class _Renglon extends StatelessWidget {
     required this.renglon,
     required this.onTap,
     required this.onTrato,
+    required this.onQuitar,
   });
 
   final RenglonCompra renglon;
   final VoidCallback onTap;
   final VoidCallback onTrato;
+  final VoidCallback onQuitar;
 
   @override
   Widget build(BuildContext context) {
@@ -382,11 +404,22 @@ class _Renglon extends StatelessWidget {
           ],
         ),
       ),
-      trailing: IconButton(
-        tooltip: 'Cambiar vendedor o precio',
-        iconSize: 28,
-        icon: const Icon(Icons.edit_outlined),
-        onPressed: onTrato,
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            tooltip: 'Cambiar vendedor o precio',
+            iconSize: 28,
+            icon: const Icon(Icons.edit_outlined),
+            onPressed: onTrato,
+          ),
+          IconButton(
+            tooltip: 'Quitar de esta compra',
+            iconSize: 28,
+            icon: const Icon(Icons.delete_outline),
+            onPressed: onQuitar,
+          ),
+        ],
       ),
     );
   }
@@ -448,7 +481,7 @@ class _DialogoTratoState extends State<_DialogoTrato> {
           mainAxisSize: MainAxisSize.min,
           children: [
             const Text(
-              'A quien le compraste este',
+              'A quién le compraste este',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 6),
@@ -459,7 +492,7 @@ class _DialogoTratoState extends State<_DialogoTrato> {
             ),
             const SizedBox(height: 16),
             const Text(
-              'Como se cotizo',
+              'Cómo se cotizó',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 6),

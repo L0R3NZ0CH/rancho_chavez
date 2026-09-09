@@ -30,6 +30,7 @@ class _PantallaNuevaCompraState extends State<PantallaNuevaCompra> {
   String _forma = 'porKilo';
   List<String> _vendedoresPrevios = const [];
   bool _guardando = false;
+  bool _resaltarFaltantes = false;
 
   @override
   void initState() {
@@ -47,10 +48,30 @@ class _PantallaNuevaCompraState extends State<PantallaNuevaCompra> {
     super.dispose();
   }
 
-  bool get _listo => _vendedor.text.trim().isNotEmpty && !_guardando;
+  /// Que falta para poder crear la compra.
+  ///
+  /// Un boton gris que no dice por que esta gris es un boton descompuesto.
+  List<String> get _faltantes => [
+        if (_vendedor.text.trim().isEmpty) 'a quién le compraste',
+      ];
 
   Future<void> _guardar() async {
-    if (!_listo) return;
+    if (_guardando) return;
+
+    if (_faltantes.isNotEmpty) {
+      setState(() => _resaltarFaltantes = true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Paleta.alerta,
+          content: Text(
+            'Falta ${_faltantes.join(' y ')}.',
+            style: const TextStyle(fontSize: 18),
+          ),
+        ),
+      );
+      return;
+    }
+
     setState(() => _guardando = true);
 
     try {
@@ -65,6 +86,19 @@ class _PantallaNuevaCompraState extends State<PantallaNuevaCompra> {
       );
 
       if (mounted) Navigator.pop(context, id);
+    } on Exception catch (e) {
+      // Un fallo al guardar no puede quedarse callado.
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Paleta.alerta,
+            content: Text(
+              'No se pudo crear la compra: $e',
+              style: const TextStyle(fontSize: 17),
+            ),
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _guardando = false);
     }
@@ -82,8 +116,9 @@ class _PantallaNuevaCompraState extends State<PantallaNuevaCompra> {
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                 children: [
                   _Campo(
-                    titulo: 'A quien le compraste',
+                    titulo: 'A quién le compraste',
                     obligatorio: true,
+                    falta: _resaltarFaltantes && _vendedor.text.trim().isEmpty,
                     hijo: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -92,7 +127,7 @@ class _PantallaNuevaCompraState extends State<PantallaNuevaCompra> {
                           style: const TextStyle(fontSize: 20),
                           decoration: const InputDecoration(
                             border: OutlineInputBorder(),
-                            hintText: 'El vendedor mas comun del viaje',
+                            hintText: 'El vendedor más común del viaje',
                           ),
                           onChanged: (_) => setState(() {}),
                         ),
@@ -133,7 +168,7 @@ class _PantallaNuevaCompraState extends State<PantallaNuevaCompra> {
                     ),
                   ),
                   _Campo(
-                    titulo: 'Como se cotizo',
+                    titulo: 'Cómo se cotizó',
                     obligatorio: true,
                     hijo: Row(
                       children: [
@@ -159,8 +194,8 @@ class _PantallaNuevaCompraState extends State<PantallaNuevaCompra> {
                     _Campo(
                       titulo: 'Precio por kilo',
                       subtitulo: 'El costo de cada animal sale de su peso de '
-                          'recepcion por este precio. A quien se le haya '
-                          'comprado a otro precio, se le cambia despues.',
+                          'recepción por este precio. A quien se le haya '
+                          'comprado a otro precio, se le cambia después.',
                       hijo: _Dinero(
                         controlador: _precioKilo,
                         sufijo: 'por kg',
@@ -171,10 +206,27 @@ class _PantallaNuevaCompraState extends State<PantallaNuevaCompra> {
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-              child: BotonGrande(
-                etiqueta: _guardando ? 'GUARDANDO...' : 'CREAR LA COMPRA',
-                icono: Icons.check,
-                onPressed: _listo ? _guardar : null,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_faltantes.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        'Falta ${_faltantes.join(' y ')}',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          color: Paleta.alerta,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  BotonGrande(
+                    etiqueta: _guardando ? 'GUARDANDO...' : 'CREAR LA COMPRA',
+                    icono: Icons.check,
+                    onPressed: _guardando ? null : _guardar,
+                  ),
+                ],
               ),
             ),
           ],
@@ -212,12 +264,16 @@ class _Campo extends StatelessWidget {
     required this.hijo,
     this.subtitulo,
     this.obligatorio = false,
+    this.falta = false,
   });
 
   final String titulo;
   final String? subtitulo;
   final Widget hijo;
   final bool obligatorio;
+
+  /// Se intento crear la compra y este campo era el que faltaba.
+  final bool falta;
 
   @override
   Widget build(BuildContext context) {
@@ -230,9 +286,10 @@ class _Campo extends StatelessWidget {
             children: [
               Text(
                 titulo,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 19,
                   fontWeight: FontWeight.w800,
+                  color: falta ? Paleta.alerta : Paleta.texto,
                 ),
               ),
               if (obligatorio)

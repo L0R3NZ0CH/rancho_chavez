@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../comun/fechas.dart';
+import '../../comun/confirmar.dart';
 import '../../comun/tema.dart';
 import '../../data/db/base_datos.dart';
 import 'pantalla_lote.dart';
@@ -29,6 +30,22 @@ class PantallaCompras extends StatelessWidget {
     );
   }
 
+  /// Borrar una compra no borra a sus animales.
+  ///
+  /// Se dice explicitamente en el aviso, porque es la duda inmediata de quien
+  /// lo va a picar.
+  Future<void> _borrar(BuildContext context, LoteCompra lote) async {
+    final confirmado = await confirmarBorrado(
+      context,
+      titulo: 'Borrar esta compra',
+      mensaje: 'Se borra el registro del viaje a ${lote.vendedor} y lo que '
+          'costaron los animales.\n\nLos animales NO se borran: siguen en el '
+          'hato.',
+    );
+    if (!(confirmado ?? false) || !context.mounted) return;
+    await db.eliminarCompra(lote.id);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -47,7 +64,7 @@ class PantallaCompras extends StatelessWidget {
                           child: Padding(
                             padding: EdgeInsets.all(28),
                             child: Text(
-                              'Todavia no hay compras registradas.\n\n'
+                              'Todavía no hay compras registradas.\n\n'
                               'Registra el viaje una vez —vendedor, lugar y '
                               'precio— y luego le vas metiendo los animales. '
                               'Al que se le haya comprado a otro, se le cambia '
@@ -67,6 +84,7 @@ class PantallaCompras extends StatelessWidget {
                               const Divider(height: 1, color: Paleta.borde),
                           itemBuilder: (context, i) => _Renglon(
                             lote: lotes[i],
+                            onBorrar: () => _borrar(context, lotes[i]),
                             onTap: () => Navigator.push(
                               context,
                               MaterialPageRoute(
@@ -97,10 +115,15 @@ class PantallaCompras extends StatelessWidget {
 }
 
 class _Renglon extends StatelessWidget {
-  const _Renglon({required this.lote, required this.onTap});
+  const _Renglon({
+    required this.lote,
+    required this.onTap,
+    required this.onBorrar,
+  });
 
   final LoteCompra lote;
   final VoidCallback onTap;
+  final VoidCallback onBorrar;
 
   @override
   Widget build(BuildContext context) {
@@ -120,7 +143,18 @@ class _Renglon extends StatelessWidget {
           style: const TextStyle(fontSize: 17, color: Paleta.textoSuave),
         ),
       ),
-      trailing: const Icon(Icons.chevron_right, size: 30),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            tooltip: 'Borrar la compra',
+            iconSize: 28,
+            icon: const Icon(Icons.delete_outline),
+            onPressed: onBorrar,
+          ),
+          const Icon(Icons.chevron_right, size: 30),
+        ],
+      ),
     );
   }
 }

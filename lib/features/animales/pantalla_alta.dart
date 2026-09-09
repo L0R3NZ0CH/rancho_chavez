@@ -44,6 +44,7 @@ class _PantallaAltaState extends State<PantallaAlta> {
 
   List<Ubicacion> _ubicaciones = const [];
   bool _guardando = false;
+  bool _resaltarFaltantes = false;
 
   @override
   void initState() {
@@ -124,8 +125,33 @@ class _PantallaAltaState extends State<PantallaAlta> {
     });
   }
 
+  /// Que falta para poder guardar.
+  ///
+  /// Un boton gris que no dice por que esta gris es un boton descompuesto:
+  /// el usuario lo pica, no pasa nada, y concluye que la app no sirve. Aqui el
+  /// boton siempre se puede picar y, si falta algo, lo dice por su nombre.
+  List<String> get _faltantes => [
+        if (_sexo == null) 'el sexo',
+        if (_ubicacionId == null) 'el potrero donde esta',
+      ];
+
   Future<void> _guardar() async {
-    if (_sexo == null || _ubicacionId == null || _guardando) return;
+    if (_guardando) return;
+
+    if (_faltantes.isNotEmpty) {
+      setState(() => _resaltarFaltantes = true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Paleta.alerta,
+          content: Text(
+            'Falta ${_faltantes.join(' y ')}.',
+            style: const TextStyle(fontSize: 18),
+          ),
+        ),
+      );
+      return;
+    }
+
     setState(() => _guardando = true);
 
     final hoy = hoyAaaammdd();
@@ -176,6 +202,20 @@ class _PantallaAltaState extends State<PantallaAlta> {
       await widget.db.escribirAjuste('ultimoProposito', _proposito);
 
       if (mounted) Navigator.pop(context, id);
+    } on Exception catch (e) {
+      // Un fallo al guardar no puede quedarse callado: sin esto, el boton
+      // parece que no hace nada y no hay forma de saber por que.
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Paleta.alerta,
+            content: Text(
+              'No se pudo guardar: $e',
+              style: const TextStyle(fontSize: 17),
+            ),
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _guardando = false);
     }
@@ -183,8 +223,6 @@ class _PantallaAltaState extends State<PantallaAlta> {
 
   @override
   Widget build(BuildContext context) {
-    final listo = _sexo != null && _ubicacionId != null && !_guardando;
-
     return Scaffold(
       appBar: AppBar(title: const Text('Nuevo animal')),
       body: SafeArea(
@@ -197,6 +235,7 @@ class _PantallaAltaState extends State<PantallaAlta> {
                   _Seccion(
                     titulo: 'Sexo',
                     obligatorio: true,
+                    falta: _resaltarFaltantes && _sexo == null,
                     hijo: Row(
                       children: [
                         Expanded(
@@ -268,8 +307,12 @@ class _PantallaAltaState extends State<PantallaAlta> {
                     ),
                   ),
                   _Seccion(
-                    titulo: 'Donde esta',
+                    titulo: 'Dónde está',
                     obligatorio: true,
+                    falta: _resaltarFaltantes && _ubicacionId == null,
+                    subtitulo: _ubicaciones.isEmpty
+                        ? 'Todavía no hay potreros. Crea el primero aquí abajo.'
+                        : null,
                     hijo: Wrap(
                       spacing: 10,
                       runSpacing: 10,
@@ -289,7 +332,7 @@ class _PantallaAltaState extends State<PantallaAlta> {
                     ),
                   ),
                   _Seccion(
-                    titulo: 'Proposito',
+                    titulo: 'Propósito',
                     hijo: Row(
                       children: [
                         Expanded(
@@ -303,7 +346,7 @@ class _PantallaAltaState extends State<PantallaAlta> {
                         const SizedBox(width: 10),
                         Expanded(
                           child: _Opcion(
-                            etiqueta: 'PIE DE CRIA',
+                            etiqueta: 'PIE DE CRÍA',
                             activo: _proposito == 'pieDeCria',
                             onTap: () =>
                                 setState(() => _proposito = 'pieDeCria'),
@@ -313,7 +356,7 @@ class _PantallaAltaState extends State<PantallaAlta> {
                     ),
                   ),
                   _Seccion(
-                    titulo: 'Como entro',
+                    titulo: 'Cómo entró',
                     hijo: Row(
                       children: [
                         Expanded(
@@ -326,7 +369,7 @@ class _PantallaAltaState extends State<PantallaAlta> {
                         const SizedBox(width: 10),
                         Expanded(
                           child: _Opcion(
-                            etiqueta: 'NACIO AQUI',
+                            etiqueta: 'NACIÓ AQUÍ',
                             activo: _origen == 'nacido',
                             onTap: () => setState(() => _origen = 'nacido'),
                           ),
@@ -344,13 +387,13 @@ class _PantallaAltaState extends State<PantallaAlta> {
                       runSpacing: 10,
                       children: [
                         _Chip(
-                          etiqueta: 'No se',
+                          etiqueta: 'No sé',
                           activo: _mesesAprox == null,
                           onTap: () => setState(() => _mesesAprox = null),
                         ),
                         for (final m in [3, 6, 9, 12, 18, 24, 36])
                           _Chip(
-                            etiqueta: m < 12 ? '$m meses' : '${m ~/ 12} anios',
+                            etiqueta: _edadEnPalabras(m),
                             activo: _mesesAprox == m,
                             onTap: () => setState(() => _mesesAprox = m),
                           ),
@@ -375,7 +418,7 @@ class _PantallaAltaState extends State<PantallaAlta> {
                     ),
                   ),
                   _Seccion(
-                    titulo: 'Apodo y senas',
+                    titulo: 'Apodo y señas',
                     subtitulo: 'Opcional. Ayuda a reconocerlo sin arete.',
                     hijo: Column(
                       children: [
@@ -394,7 +437,7 @@ class _PantallaAltaState extends State<PantallaAlta> {
                           style: const TextStyle(fontSize: 19),
                           decoration: const InputDecoration(
                             border: OutlineInputBorder(),
-                            hintText: 'Color, senas, cuernos',
+                            hintText: 'Color, señas, cuernos',
                           ),
                         ),
                       ],
@@ -405,10 +448,27 @@ class _PantallaAltaState extends State<PantallaAlta> {
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-              child: BotonGrande(
-                etiqueta: _guardando ? 'GUARDANDO...' : 'GUARDAR',
-                icono: Icons.check,
-                onPressed: listo ? _guardar : null,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_faltantes.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        'Falta ${_faltantes.join(' y ')}',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          color: Paleta.alerta,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  BotonGrande(
+                    etiqueta: _guardando ? 'GUARDANDO...' : 'GUARDAR',
+                    icono: Icons.check,
+                    onPressed: _guardando ? null : _guardar,
+                  ),
+                ],
               ),
             ),
           ],
@@ -418,18 +478,33 @@ class _PantallaAltaState extends State<PantallaAlta> {
   }
 }
 
+/// Los meses, dichos como los diria una persona.
+///
+/// Dividir entre doce y decir "anios" hacia que 12 y 18 meses se vieran los dos
+/// como "1 anios": dos botones distintos con la misma etiqueta.
+String _edadEnPalabras(int meses) => switch (meses) {
+      < 12 => '$meses meses',
+      12 => '1 año',
+      18 => 'año y medio',
+      _ => '${meses ~/ 12} años',
+    };
+
 class _Seccion extends StatelessWidget {
   const _Seccion({
     required this.titulo,
     required this.hijo,
     this.subtitulo,
     this.obligatorio = false,
+    this.falta = false,
   });
 
   final String titulo;
   final String? subtitulo;
   final Widget hijo;
   final bool obligatorio;
+
+  /// Se intento guardar y este campo era el que faltaba.
+  final bool falta;
 
   @override
   Widget build(BuildContext context) {
@@ -442,9 +517,10 @@ class _Seccion extends StatelessWidget {
             children: [
               Text(
                 titulo,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 19,
                   fontWeight: FontWeight.w800,
+                  color: falta ? Paleta.alerta : Paleta.texto,
                 ),
               ),
               if (obligatorio)

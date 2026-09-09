@@ -39,7 +39,7 @@ class _PantallaTecladoState extends State<PantallaTeclado> {
     final completo = pareceSiniiga(_numero);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Escribir el numero')),
+      appBar: AppBar(title: const Text('Escribir el número')),
       body: SafeArea(
         child: Column(
           children: [
@@ -77,7 +77,7 @@ class _PantallaTecladoState extends State<PantallaTeclado> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    '${_numero.length} de $largoSiniiga digitos',
+                    '${_numero.length} de $largoSiniiga dígitos',
                     style: TextStyle(
                       fontSize: 17,
                       fontWeight: FontWeight.w600,

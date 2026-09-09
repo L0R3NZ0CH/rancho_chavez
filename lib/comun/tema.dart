@@ -79,11 +79,19 @@ class BotonGrande extends StatelessWidget {
           Icon(icono, size: 30),
           const SizedBox(width: 12),
         ],
+        // FittedBox y no Flexible a secas: sin esto, una etiqueta que no cabe
+        // se parte letra por letra en vertical y el boton queda ilegible.
+        // Aqui la palabra se encoge y se queda en un solo renglon.
         Flexible(
-          child: Text(
-            etiqueta,
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w800),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              etiqueta,
+              maxLines: 1,
+              softWrap: false,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w800),
+            ),
           ),
         ),
       ],

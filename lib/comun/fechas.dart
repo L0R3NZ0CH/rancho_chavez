@@ -17,5 +17,15 @@ String formateaAaaammdd(int v) {
   return '$dia/$mes/$anio';
 }
 
+/// Los dias, dichos como los diria una persona.
+///
+/// "hace 1 dias" se lee como un error de la app, y quien lo lee deja de confiar
+/// en los demas numeros de la pantalla.
+String diasEnPalabras(int dias) => switch (dias) {
+      0 => 'hoy',
+      1 => 'ayer',
+      _ => 'hace $dias días',
+    };
+
 /// Instante de auditoria: milisegundos UTC desde la epoca.
 int ahoraUtcMs() => DateTime.now().toUtc().millisecondsSinceEpoch;

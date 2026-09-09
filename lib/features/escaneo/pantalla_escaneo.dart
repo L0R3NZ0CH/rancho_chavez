@@ -123,7 +123,7 @@ class _SinCamara extends StatelessWidget {
               const Icon(Icons.no_photography, color: Colors.white, size: 64),
               const SizedBox(height: 16),
               const Text(
-                'No se pudo abrir la camara',
+                'No se pudo abrir la cámara',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 22,
@@ -140,7 +140,7 @@ class _SinCamara extends StatelessWidget {
               const SizedBox(height: 24),
               // Que falle la camara no puede dejar al usuario sin salida.
               BotonGrande(
-                etiqueta: 'ESCRIBIR EL NUMERO A MANO',
+                etiqueta: 'ESCRIBIR EL NÚMERO A MANO',
                 icono: Icons.dialpad,
                 onPressed: onManual,
               ),
@@ -200,7 +200,7 @@ class _BarraSuperior extends StatelessWidget {
                 final prendida = estado.torchState == TorchState.on;
                 return _BotonRedondo(
                   icono: prendida ? Icons.flashlight_on : Icons.flashlight_off,
-                  etiqueta: 'Lampara',
+                  etiqueta: 'Lámpara',
                   resaltado: prendida,
                   onPressed: () => control.toggleTorch(),
                 );
@@ -297,7 +297,7 @@ class _Confirmacion extends StatelessWidget {
               children: [
                 const SizedBox(height: 12),
                 const Text(
-                  'ARETE LEIDO',
+                  'ARETE LEÍDO',
                   style: TextStyle(
                     color: Colors.white70,
                     fontSize: 16,
@@ -325,20 +325,20 @@ class _Confirmacion extends StatelessWidget {
                   const _Nota(
                     color: Colors.white24,
                     texto:
-                        'Se le quito el prefijo 484 de Mexico, que viene dentro '
-                        'del codigo de barras pero no esta impreso en el arete. '
+                        'Se le quitó el prefijo 484 de México, que viene dentro '
+                        'del código de barras pero no está impreso en el arete. '
                         'Lo de arriba es lo que dice la bandera.',
                   ),
                 if (!valido)
                   _Nota(
                     color: Paleta.aviso,
-                    texto: 'Ojo: son ${leido.numero.length} digitos, no '
+                    texto: 'Ojo: son ${leido.numero.length} dígitos, no '
                         '$largoSiniiga. Revisa contra la bandera antes de '
                         'usarlo.',
                   ),
                 const SizedBox(height: 24),
                 BotonGrande(
-                  etiqueta: 'USAR ESTE NUMERO',
+                  etiqueta: 'USAR ESTE NÚMERO',
                   icono: Icons.check,
                   onPressed: onUsar,
                 ),

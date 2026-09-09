@@ -83,20 +83,20 @@ class _PantallaRespaldoState extends State<PantallaRespaldo> {
         context: context,
         barrierDismissible: false,
         builder: (c) => AlertDialog(
-          title: const Text('¿Ya salio del celular?'),
+          title: const Text('¿Ya salió del celular?'),
           content: const Text(
-            'El archivo se guardo en el celular, pero no puedo saber si de '
-            'verdad se envio. Si todavia no lo mandas, el aviso se queda.',
+            'El archivo se guardó en el celular, pero no puedo saber si de '
+            'verdad se envió. Si todavía no lo mandas, el aviso se queda.',
             style: TextStyle(fontSize: 17),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(c, false),
-              child: const Text('Todavia no', style: TextStyle(fontSize: 18)),
+              child: const Text('Todavía no', style: TextStyle(fontSize: 18)),
             ),
             TextButton(
               onPressed: () => Navigator.pop(c, true),
-              child: const Text('Si, ya salio', style: TextStyle(fontSize: 18)),
+              child: const Text('Sí, ya salió', style: TextStyle(fontSize: 18)),
             ),
           ],
         ),
@@ -169,15 +169,15 @@ class _PantallaRespaldoState extends State<PantallaRespaldo> {
                 Text(
                   _ultimo == null
                       ? 'Nunca se ha respaldado este celular.'
-                      : 'Ultimo respaldo: $_ultimo',
+                      : 'Último respaldo: $_ultimo',
                   textAlign: TextAlign.center,
                   style: const TextStyle(fontSize: 17),
                 ),
                 const SizedBox(height: 20),
                 const Text(
-                  'Todo el ganado vive en este telefono. Si se moja, se rompe o '
-                  'se pierde en el corral, se pierde con el. Manda el archivo a '
-                  'WhatsApp, a tu correo o a donde lo puedas encontrar despues.',
+                  'Todo el ganado vive en este teléfono. Si se moja, se rompe o '
+                  'se pierde en el corral, se pierde con él. Manda el archivo a '
+                  'WhatsApp, a tu correo o a donde lo puedas encontrar después.',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 17, color: Paleta.textoSuave),
                 ),
