@@ -69,9 +69,10 @@ class _PantallaAltaState extends State<PantallaAlta> {
     setState(() {
       _ubicaciones = ubis;
       _proposito = ultimoProposito ?? 'comercial';
-      _ubicacionId = ubis.any((u) => u.id == ultimaUbicacion)
-          ? ultimaUbicacion
-          : (ubis.isNotEmpty ? ubis.first.id : null);
+      // Se recuerda el ultimo lugar usado, pero no se inventa uno: si el
+      // usuario nunca ha elegido, el animal queda sin lugar y ya.
+      _ubicacionId =
+          ubis.any((u) => u.id == ultimaUbicacion) ? ultimaUbicacion : null;
     });
   }
 
@@ -132,11 +133,11 @@ class _PantallaAltaState extends State<PantallaAlta> {
   /// boton siempre se puede picar y, si falta algo, lo dice por su nombre.
   List<String> get _faltantes => [
         if (_sexo == null) 'el sexo',
-        if (_ubicacionId == null) 'el potrero donde esta',
       ];
 
   Future<void> _guardar() async {
     if (_guardando) return;
+
 
     if (_faltantes.isNotEmpty) {
       setState(() => _resaltarFaltantes = true);
@@ -173,7 +174,7 @@ class _PantallaAltaState extends State<PantallaAlta> {
         sexo: _sexo!,
         origen: _origen,
         proposito: _proposito,
-        ubicacionId: _ubicacionId!,
+        ubicacionId: _ubicacionId,
         fecha: hoy,
         numeroArete: _numero,
         apodo: _apodo.text.trim().isEmpty ? null : _apodo.text.trim(),
@@ -198,7 +199,9 @@ class _PantallaAltaState extends State<PantallaAlta> {
 
       // Se recuerdan para el siguiente animal: en una jornada se dan de alta
       // veinte seguidos al mismo potrero.
-      await widget.db.escribirAjuste('ultimaUbicacionId', _ubicacionId!);
+      if (_ubicacionId != null) {
+        await widget.db.escribirAjuste('ultimaUbicacionId', _ubicacionId!);
+      }
       await widget.db.escribirAjuste('ultimoProposito', _proposito);
 
       if (mounted) Navigator.pop(context, id);
@@ -308,15 +311,17 @@ class _PantallaAltaState extends State<PantallaAlta> {
                   ),
                   _Seccion(
                     titulo: 'Dónde está',
-                    obligatorio: true,
-                    falta: _resaltarFaltantes && _ubicacionId == null,
-                    subtitulo: _ubicaciones.isEmpty
-                        ? 'Todavía no hay potreros. Crea el primero aquí abajo.'
-                        : null,
+                    subtitulo: 'Opcional. Si lo dejas en blanco, queda en '
+                        '"Sin lugar" y se lo asignas después.',
                     hijo: Wrap(
                       spacing: 10,
                       runSpacing: 10,
                       children: [
+                        _Chip(
+                          etiqueta: 'Sin lugar',
+                          activo: _ubicacionId == null,
+                          onTap: () => setState(() => _ubicacionId = null),
+                        ),
                         for (final u in _ubicaciones)
                           _Chip(
                             etiqueta: u.nombre,
@@ -324,7 +329,7 @@ class _PantallaAltaState extends State<PantallaAlta> {
                             onTap: () => setState(() => _ubicacionId = u.id),
                           ),
                         _Chip(
-                          etiqueta: '+ Nuevo potrero',
+                          etiqueta: '+ Nuevo lugar',
                           activo: false,
                           onTap: _nuevaUbicacion,
                         ),

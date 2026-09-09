@@ -139,12 +139,17 @@ class BaseDatos extends _$BaseDatos {
   ///
   /// El numero de arete es opcional porque **el animal existe antes que el
   /// arete**: los lotes comprados llegan sin identificar.
+  ///
+  /// La ubicacion tambien es opcional. En el corral se escanea de corrida y el
+  /// lugar se asigna despues, con calma: obligar a elegir potrero en ese
+  /// momento es lo que hace que el alta pase de quince segundos. Un animal sin
+  /// ubicacion aparece en "Sin lugar" en el inicio, para que no se pierda.
   Future<String> altaAnimal({
     required String sexo,
     required String origen,
     required String proposito,
-    required String ubicacionId,
     required int fecha,
+    String? ubicacionId,
     String? numeroArete,
     String tipoArete = 'siniiga',
     String? apodo,
@@ -185,11 +190,13 @@ class BaseDatos extends _$BaseDatos {
         );
       }
 
-      await registrarMovimiento(
-        animalId: s.id,
-        ubicacionDestinoId: ubicacionId,
-        fecha: fecha,
-      );
+      if (ubicacionId != null) {
+        await registrarMovimiento(
+          animalId: s.id,
+          ubicacionDestinoId: ubicacionId,
+          fecha: fecha,
+        );
+      }
 
       await registrarProposito(
         animalId: s.id,

@@ -1,0 +1,472 @@
+import 'package:flutter/material.dart';
+
+import '../../comun/confirmar.dart';
+import '../../comun/fechas.dart';
+import '../../comun/tema.dart';
+import '../../data/db/base_datos.dart';
+import '../../data/repos/hato.dart';
+import '../../data/respaldo.dart';
+import '../animales/pantalla_alta.dart';
+import '../animales/pantalla_ficha.dart';
+import '../compras/pantalla_compras.dart';
+import '../escaneo/pantalla_escaneo.dart';
+import '../respaldo/pantalla_respaldo.dart';
+import 'pantalla_animales_del_lugar.dart';
+
+/// La pantalla de inicio: los lugares del rancho.
+///
+/// No es la lista de todos los animales revueltos. El rancho se camina por
+/// lugares —el río, la yunta, el potrero— y así se piensa el ganado: "¿cuántos
+/// tengo en el río?". Al picar un lugar se ven los animales que están ahí.
+///
+/// Arriba aparecen dos renglones especiales, y solo cuando hacen falta:
+/// **Sin lugar**, para los que se escanearon de corrida y todavía no tienen
+/// potrero asignado, y **Pendientes de aretar**. Sin ellos, un animal
+/// capturado a las prisas se perdería sin que nadie lo notara.
+class PantallaLugares extends StatefulWidget {
+  const PantallaLugares({super.key, required this.db});
+
+  final BaseDatos db;
+
+  @override
+  State<PantallaLugares> createState() => _PantallaLugaresState();
+}
+
+class _PantallaLugaresState extends State<PantallaLugares> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _revisarRespaldo());
+  }
+
+  Future<void> _revisarRespaldo() async {
+    final deuda = await deudaDeRespaldo(widget.db);
+    if (deuda < umbralDeuda || !mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => PantallaRespaldo(db: widget.db),
+      ),
+    );
+  }
+
+  /// Escanear busca al animal en todo el rancho, sin importar donde este.
+  Future<void> _escanear() async {
+    final numero = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(builder: (_) => const PantallaEscaneo()),
+    );
+    if (numero == null || !mounted) return;
+
+    final animal = await widget.db.animalPorArete(numero);
+    if (!mounted) return;
+
+    if (animal != null) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => PantallaFicha(db: widget.db, animalId: animal.id),
+        ),
+      );
+      return;
+    }
+
+    final alta = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Arete no registrado'),
+        content: Text(
+          'El arete $numero no está en el sistema. '
+          'Puedes dar de alta un animal nuevo con ese número.',
+          style: const TextStyle(fontSize: 17),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c, false),
+            child: const Text('Cancelar', style: TextStyle(fontSize: 18)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('Dar de alta', style: TextStyle(fontSize: 18)),
+          ),
+        ],
+      ),
+    );
+
+    if ((alta ?? false) && mounted) await _alta(numeroArete: numero);
+  }
+
+  Future<void> _alta({String? numeroArete}) async {
+    final id = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            PantallaAlta(db: widget.db, numeroArete: numeroArete),
+      ),
+    );
+    if (id == null || !mounted) return;
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PantallaFicha(db: widget.db, animalId: id),
+      ),
+    );
+    if (mounted) await _revisarRespaldo();
+  }
+
+  Future<void> _nuevoLugar() async {
+    final nombre = await showDialog<String>(
+      context: context,
+      builder: (_) => const _DialogoLugar(),
+    );
+    if (nombre == null) return;
+    await widget.db.crearUbicacion(nombre: nombre, tipo: 'potrero');
+  }
+
+  Future<void> _borrarLugar(Ubicacion u) async {
+    final cuantos = await widget.db.animalesEnUbicacion(u.id);
+    if (!mounted) return;
+
+    if (cuantos > 0) {
+      // No se borra un lugar con ganado parado: los animales quedarian sin
+      // sitio y sin que nadie se entere.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Paleta.aviso,
+          content: Text(
+            '${u.nombre} tiene $cuantos ${cuantos == 1 ? 'animal' : 'animales'}. '
+            'Muévelos antes de borrarlo.',
+            style: const TextStyle(fontSize: 17),
+          ),
+        ),
+      );
+      return;
+    }
+
+    final confirmado = await confirmarBorrado(
+      context,
+      titulo: 'Borrar ${u.nombre}',
+      mensaje: 'El lugar sale de la lista.\n\nEl historial de movimientos se '
+          'conserva.',
+    );
+    if (!(confirmado ?? false)) return;
+    await widget.db.eliminarUbicacion(u.id);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final repo = RepoHato(widget.db);
+    final hoy = hoyAaaammdd();
+
+    return StreamBuilder<List<AnimalEnLista>>(
+      stream: repo.verHato(hoy: hoy),
+      builder: (context, snapHato) {
+        final hato = snapHato.data ?? const <AnimalEnLista>[];
+
+        return StreamBuilder<List<Ubicacion>>(
+          stream: widget.db.verUbicaciones(),
+          builder: (context, snapUbis) {
+            final lugares = snapUbis.data ?? const <Ubicacion>[];
+
+            final porLugar = <String, int>{};
+            var sinLugar = 0;
+            var pendientes = 0;
+            for (final a in hato) {
+              final u = a.ubicacionId;
+              if (u == null) {
+                sinLugar++;
+              } else {
+                porLugar[u] = (porLugar[u] ?? 0) + 1;
+              }
+              if (a.pendienteDeAretar) pendientes++;
+            }
+
+            return Scaffold(
+              appBar: AppBar(
+                title: Text(
+                  hato.isEmpty
+                      ? 'El rancho'
+                      : '${hato.length} ${hato.length == 1 ? 'animal' : 'animales'}',
+                ),
+                actions: [
+                  IconButton(
+                    tooltip: 'Compras',
+                    iconSize: 30,
+                    icon: const Icon(Icons.local_shipping_outlined),
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => PantallaCompras(db: widget.db),
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Respaldar',
+                    iconSize: 30,
+                    icon: const Icon(Icons.backup_outlined),
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => PantallaRespaldo(
+                          db: widget.db,
+                          bloqueante: false,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              body: SafeArea(
+                child: Column(
+                  children: [
+                    Expanded(
+                      child: ListView(
+                        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                        children: [
+                          if (sinLugar > 0)
+                            _Renglon(
+                              nombre: 'Sin lugar',
+                              cuantos: sinLugar,
+                              destacado: true,
+                              icono: Icons.help_outline,
+                              onTap: () => _abrir(null, 'Sin lugar'),
+                            ),
+                          if (pendientes > 0)
+                            _Renglon(
+                              nombre: 'Pendientes de aretar',
+                              cuantos: pendientes,
+                              destacado: true,
+                              icono: Icons.label_off_outlined,
+                              onTap: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => PantallaAnimalesDelLugar(
+                                    db: widget.db,
+                                    titulo: 'Pendientes de aretar',
+                                    soloPendientes: true,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          if (sinLugar > 0 || pendientes > 0)
+                            const SizedBox(height: 14),
+                          if (lugares.isEmpty && hato.isEmpty)
+                            const _Vacio()
+                          else
+                            for (final u in lugares)
+                              _Renglon(
+                                nombre: u.nombre,
+                                cuantos: porLugar[u.id] ?? 0,
+                                icono: Icons.grass,
+                                onTap: () => _abrir(u.id, u.nombre),
+                                onBorrar: () => _borrarLugar(u),
+                              ),
+                          const SizedBox(height: 10),
+                          BotonGrande(
+                            etiqueta: '+ NUEVO LUGAR',
+                            contorno: true,
+                            onPressed: _nuevoLugar,
+                          ),
+                        ],
+                      ),
+                    ),
+                    // El boton de escanear va fijo abajo y siempre visible.
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            flex: 2,
+                            child: BotonGrande(
+                              etiqueta: 'ESCANEAR',
+                              icono: Icons.qr_code_scanner,
+                              onPressed: _escanear,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: BotonGrande(
+                              etiqueta: 'NUEVO',
+                              icono: Icons.add,
+                              contorno: true,
+                              onPressed: () => _alta(),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _abrir(String? ubicacionId, String titulo) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PantallaAnimalesDelLugar(
+          db: widget.db,
+          ubicacionId: ubicacionId,
+          titulo: titulo,
+        ),
+      ),
+    );
+  }
+}
+
+class _Vacio extends StatelessWidget {
+  const _Vacio();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.fromLTRB(16, 40, 16, 24),
+      child: Text(
+        'Todavía no hay lugares ni animales.\n\n'
+        'Puedes empezar por donde quieras: crea un lugar aquí abajo, o escanea '
+        'un arete y ponle el lugar después.',
+        textAlign: TextAlign.center,
+        style: TextStyle(fontSize: 18, color: Paleta.textoSuave),
+      ),
+    );
+  }
+}
+
+class _Renglon extends StatelessWidget {
+  const _Renglon({
+    required this.nombre,
+    required this.cuantos,
+    required this.icono,
+    required this.onTap,
+    this.onBorrar,
+    this.destacado = false,
+  });
+
+  final String nombre;
+  final int cuantos;
+  final IconData icono;
+  final VoidCallback onTap;
+  final VoidCallback? onBorrar;
+
+  /// Los renglones que piden atencion: sin lugar, pendientes de aretar.
+  final bool destacado;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = destacado ? Paleta.aviso : Paleta.texto;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: destacado ? const Color(0xFFFFF4E0) : Paleta.fondoSuave,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onTap,
+          child: Container(
+            // Alto de sobra para picarle con guante.
+            constraints: const BoxConstraints(minHeight: 88),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: destacado ? Paleta.aviso : Paleta.borde,
+                width: destacado ? 2 : 1.5,
+              ),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Row(
+              children: [
+                Icon(icono, size: 30, color: color),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Text(
+                    nombre,
+                    style: TextStyle(
+                      fontSize: 23,
+                      fontWeight: FontWeight.w800,
+                      color: color,
+                    ),
+                  ),
+                ),
+                Text(
+                  '$cuantos',
+                  style: TextStyle(
+                    fontSize: 30,
+                    fontWeight: FontWeight.w900,
+                    color: color,
+                  ),
+                ),
+                if (onBorrar != null)
+                  IconButton(
+                    tooltip: 'Borrar el lugar',
+                    iconSize: 26,
+                    icon: const Icon(Icons.delete_outline),
+                    onPressed: onBorrar,
+                  )
+                else
+                  const Padding(
+                    padding: EdgeInsets.only(left: 8),
+                    child: Icon(Icons.chevron_right, size: 28),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DialogoLugar extends StatefulWidget {
+  const _DialogoLugar();
+
+  @override
+  State<_DialogoLugar> createState() => _DialogoLugarState();
+}
+
+class _DialogoLugarState extends State<_DialogoLugar> {
+  final _nombre = TextEditingController();
+
+  @override
+  void dispose() {
+    _nombre.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Nuevo lugar'),
+      content: TextField(
+        controller: _nombre,
+        autofocus: true,
+        style: const TextStyle(fontSize: 20),
+        decoration: const InputDecoration(
+          border: OutlineInputBorder(),
+          // El nombre es el que usa el dueno, nunca "Potrero 1".
+          hintText: 'El río, la yunta, a la vuelta...',
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar', style: TextStyle(fontSize: 18)),
+        ),
+        TextButton(
+          onPressed: () {
+            final n = _nombre.text.trim();
+            if (n.isNotEmpty) Navigator.pop(context, n);
+          },
+          child: const Text('Crear', style: TextStyle(fontSize: 18)),
+        ),
+      ],
+    );
+  }
+}

@@ -96,6 +96,58 @@ void main() {
     });
   });
 
+  group('el lugar es opcional', () {
+    test('se puede dar de alta sin lugar', () async {
+      // Es el flujo del corral: se escanea de corrida y el potrero se asigna
+      // despues, con calma. Obligar a elegir lugar ahi es lo que hace que el
+      // alta pase de quince segundos.
+      final id = await db.altaAnimal(
+        sexo: 'macho',
+        origen: 'comprado',
+        proposito: 'comercial',
+        fecha: 20260908,
+        numeroArete: '001409870222',
+      );
+
+      expect((await db.verAnimales().first).single.id, id);
+      expect((await db.animalPorArete('001409870222'))!.id, id);
+    });
+
+    test('sin lugar no se inventa un movimiento', () async {
+      final id = await db.altaAnimal(
+        sexo: 'macho',
+        origen: 'comprado',
+        proposito: 'comercial',
+        fecha: 20260908,
+      );
+
+      final tipos =
+          (await db.verEventos(id).first).map((e) => e.tipo).toList();
+      expect(tipos, contains('proposito'));
+      expect(tipos, isNot(contains('movimiento')));
+    });
+
+    test('el lugar se le asigna despues y el animal aparece ahi', () async {
+      final id = await db.altaAnimal(
+        sexo: 'macho',
+        origen: 'comprado',
+        proposito: 'comercial',
+        fecha: 20260908,
+      );
+      final potrero = await unPotrero();
+
+      expect(await db.animalesEnUbicacion(potrero), 0);
+
+      await db.registrarMovimiento(
+        animalId: id,
+        ubicacionDestinoId: potrero,
+        fecha: 20260910,
+      );
+
+      expect(await db.animalesEnUbicacion(potrero), 1);
+    });
+  });
+
   group('busqueda por arete', () {
     test('encuentra al animal por el numero impreso', () async {
       final id = await unAnimal(arete: '001409870222');

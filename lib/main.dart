@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 import 'comun/tema.dart';
 import 'data/db/base_datos.dart';
 import 'data/db/rutas.dart';
-import 'features/animales/pantalla_hato.dart';
+import 'features/lugares/pantalla_lugares.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -35,7 +35,7 @@ class AppGanado extends StatelessWidget {
       title: 'Ganado',
       debugShowCheckedModeBanner: false,
       theme: temaRancho(),
-      home: PantallaHato(db: db),
+      home: PantallaLugares(db: db),
     );
   }
 }
