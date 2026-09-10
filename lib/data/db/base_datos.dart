@@ -576,6 +576,47 @@ class BaseDatos extends _$BaseDatos {
   Future<Animal?> animal(String id) =>
       (select(animales)..where((a) => a.id.equals(id))).getSingleOrNull();
 
+  /// Quien trae puesto ese numero de arete, y si ya salio del hato.
+  ///
+  /// La unicidad del arete aplica **solo entre animales que siguen en el
+  /// rancho**. Un arete cuyo animal se vendio o se murio se puede reutilizar:
+  /// los aretes se reparten y se vuelven a usar, y bloquear un numero para
+  /// siempre porque hace dos anios lo trajo un becerro que ya se fue seria
+  /// obligar a inventar numeros.
+  ///
+  /// Devuelve null cuando el numero esta libre.
+  Future<({Animal animal, bool deBaja})?> areteOcupadoPor(String numero) async {
+    final animal = await animalPorArete(numero);
+    if (animal == null) return null;
+
+    final deBaja = (await animalesDadosDeBaja()).contains(animal.id);
+    return (animal: animal, deBaja: deBaja);
+  }
+
+  /// Retira el arete con ese numero, sea de quien sea.
+  ///
+  /// Se usa al reutilizar el numero en un animal nuevo: el viejo no se borra,
+  /// se marca como retirado, y asi el historial del animal que se fue conserva
+  /// el arete que trajo.
+  Future<void> retirarAretePorNumero({
+    required String numero,
+    required int fecha,
+    String motivo = 'reutilizado',
+  }) async {
+    await (update(aretes)
+          ..where((a) =>
+              a.numero.equals(numero) &
+              a.fechaRetiro.isNull() &
+              a.eliminadoEn.isNull()))
+        .write(
+      AretesCompanion(
+        fechaRetiro: Value(fecha),
+        motivoRetiro: Value(motivo),
+        modificadoEn: Value(ahoraUtcMs()),
+      ),
+    );
+  }
+
   /// Todos los eventos vivos de un animal, del mas reciente al mas viejo.
   ///
   /// El orden lleva tres criterios y los tres importan: la fecha del hecho es

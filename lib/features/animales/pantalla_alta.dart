@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../comun/arete_libre.dart';
 import '../../comun/fechas.dart';
 import '../../comun/tema.dart';
 import '../../data/db/base_datos.dart';
@@ -116,20 +117,10 @@ class _PantallaAltaState extends State<PantallaAlta> {
     );
     if (numero == null || !mounted) return;
 
-    final ocupado = await widget.db.animalPorArete(numero);
     if (!mounted) return;
-    if (ocupado != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: Paleta.alerta,
-          content: Text(
-            'El arete $numero ya lo trae otro animal.',
-            style: const TextStyle(fontSize: 17),
-          ),
-        ),
-      );
-      return;
-    }
+    final libre = await areteSePuedeUsar(context, widget.db, numero);
+    if (!libre || !mounted) return;
+
     setState(() => _numero = numero);
   }
 

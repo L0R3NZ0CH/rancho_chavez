@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../comun/arete_libre.dart';
 import '../../comun/confirmar.dart';
 import '../../comun/dialogo_captura.dart';
 import '../../comun/fechas.dart';
@@ -79,20 +80,10 @@ class _PantallaRecogidaState extends State<PantallaRecogida> {
 
   Future<bool> _capturar({String? numeroArete}) async {
     if (numeroArete != null) {
-      final existente = await widget.db.animalPorArete(numeroArete);
-      if (!mounted) return false;
-      if (existente != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: Paleta.aviso,
-            content: Text(
-              'El arete $numeroArete ya es de un animal tuyo.',
-              style: const TextStyle(fontSize: 17),
-            ),
-          ),
-        );
-        return mounted;
-      }
+      // Si el arete lo trajo un animal que ya salio del hato, pregunta en vez
+      // de bloquear: los aretes se reutilizan.
+      final libre = await areteSePuedeUsar(context, widget.db, numeroArete);
+      if (!libre) return mounted;
     }
 
     final sinArete = numeroArete == null;
