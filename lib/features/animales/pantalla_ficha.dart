@@ -27,11 +27,10 @@ class PantallaFicha extends StatelessWidget {
     final repo = RepoHato(db);
     final hoy = hoyAaaammdd();
 
-    return StreamBuilder<List<AnimalEnLista>>(
-      stream: repo.verHato(hoy: hoy),
+    return StreamBuilder<AnimalEnLista?>(
+      stream: repo.verAnimal(animalId, hoy: hoy),
       builder: (context, snap) {
-        final datos =
-            snap.data?.where((a) => a.animal.id == animalId).firstOrNull;
+        final datos = snap.data;
 
         if (datos == null) {
           return Scaffold(
@@ -129,6 +128,26 @@ class _Encabezado extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (datos.deBaja)
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Paleta.textoSuave,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Text(
+              'YA NO ESTÁ EN EL RANCHO\n'
+              'Salió del hato y de los conteos. Su historial se conserva '
+              'completo.',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
         if (datos.pendienteDeAretar)
           Container(
             width: double.infinity,
@@ -274,6 +293,10 @@ class _Acciones extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // A un animal que ya salio del hato no se le apunta nada nuevo: su
+    // historial quedo cerrado.
+    if (datos.deBaja) return const SizedBox.shrink();
+
     return Column(
       children: [
         BotonGrande(

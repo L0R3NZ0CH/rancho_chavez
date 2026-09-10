@@ -9,6 +9,7 @@ import '../animales/pantalla_ficha.dart';
 import '../escaneo/pantalla_escaneo.dart';
 import 'dialogo_peso.dart';
 import 'ficha_venta.dart';
+import 'pantalla_resumen_venta.dart';
 
 /// La pantalla de trabajo de una venta.
 ///
@@ -100,30 +101,44 @@ class _PantallaVentaState extends State<PantallaVenta> {
         .any((f) => f.animalId == animal.id);
     if (!mounted) return false;
 
-    if (!yaEsta) {
-      // Hereda el precio del ultimo que se le puso, que casi siempre es el
-      // mismo trato para todo el camion.
-      final ultimo = _venta?.renglones
-          .where((r) => r.precioPorKilo != null)
-          .lastOrNull
-          ?.precioPorKilo;
-      await widget.db.agregarAnimalAVenta(
-        ventaId: widget.ventaId,
-        animalId: animal.id,
-        precioPorKilo: ultimo,
+    if (yaEsta) {
+      // Escanear dos veces el mismo pasa cuando se van treinta seguidos. Se
+      // avisa y la camara sigue de frente: volver a pedir el peso arriesgaria
+      // pisar uno bueno con un dedazo. Para corregirlo esta la lista, donde se
+      // hace mirando y sin prisa.
+      final peso = await widget.db.pesoDeVenta(animal.id);
+      if (!mounted) return false;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Paleta.aviso,
+          duration: const Duration(seconds: 2),
+          content: Text(
+            peso == null
+                ? 'El $numero ya está en la lista, sin pesar.'
+                : 'El $numero ya está en la lista, pesó '
+                    '${peso.toStringAsFixed(0)} kg.',
+            style: const TextStyle(fontSize: 17),
+          ),
+        ),
       );
+      return mounted;
     }
 
-    // El peso previo se busca antes de abrir el dialogo: dejar el await dentro
-    // de los argumentos hace que el contexto cruce una espera.
-    final pesoPrevio = await widget.db.pesoDeVenta(animal.id);
+    // Hereda el precio del ultimo que se le puso, que casi siempre es el mismo
+    // trato para todo el camion.
+    final ultimo = _venta?.renglones
+        .where((r) => r.precioPorKilo != null)
+        .lastOrNull
+        ?.precioPorKilo;
+    await widget.db.agregarAnimalAVenta(
+      ventaId: widget.ventaId,
+      animalId: animal.id,
+      precioPorKilo: ultimo,
+    );
     if (!mounted) return false;
 
-    final kilos = await pedirPeso(
-      context,
-      titulo: numero,
-      inicial: pesoPrevio,
-    );
+    final kilos = await pedirPeso(context, titulo: numero);
     if (kilos == null || !mounted) {
       await _cargar();
       return false;
@@ -163,6 +178,24 @@ class _PantallaVentaState extends State<PantallaVenta> {
     await widget.db.precioParaTodos(
       ventaId: widget.ventaId,
       precioPorKilo: precio,
+    );
+    await _cargar();
+  }
+
+  /// Corregir el peso de un renglon, mirando la lista y sin prisa.
+  Future<void> _pesoDeUno(RenglonVenta r) async {
+    final kilos = await pedirPeso(
+      context,
+      titulo: r.titulo,
+      inicial: r.pesoVentaKg,
+    );
+    if (kilos == null || !mounted) return;
+
+    await widget.db.registrarPeso(
+      animalId: r.animal.id,
+      kilos: kilos,
+      fecha: _venta?.venta.fecha ?? hoyAaaammdd(),
+      tipoPesaje: 'venta',
     );
     await _cargar();
   }
@@ -346,7 +379,19 @@ class _PantallaVentaState extends State<PantallaVenta> {
       body: SafeArea(
         child: Column(
           children: [
-            _Totales(venta: v, onPrecioATodos: _precioATodos),
+            _Totales(
+              venta: v,
+              onPrecioATodos: _precioATodos,
+              onResumen: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => PantallaResumenVenta(
+                    db: widget.db,
+                    ventaId: widget.ventaId,
+                  ),
+                ),
+              ),
+            ),
             Expanded(
               child: v.renglones.isEmpty
                   ? const _Vacio()
@@ -359,6 +404,7 @@ class _PantallaVentaState extends State<PantallaVenta> {
                         renglon: v.renglones[i],
                         cerrada: v.cerrada,
                         onPrecio: () => _precioDeUno(v.renglones[i]),
+                        onPeso: () => _pesoDeUno(v.renglones[i]),
                         onQuitar: () => _quitar(v.renglones[i]),
                         // Ver el historial antes de ponerle precio: cuanto
                         // costo, cuanto pesaba, que se le hizo.
@@ -455,10 +501,15 @@ class _Vacio extends StatelessWidget {
 }
 
 class _Totales extends StatelessWidget {
-  const _Totales({required this.venta, required this.onPrecioATodos});
+  const _Totales({
+    required this.venta,
+    required this.onPrecioATodos,
+    required this.onResumen,
+  });
 
   final VentaArmada venta;
   final VoidCallback onPrecioATodos;
+  final VoidCallback onResumen;
 
   @override
   Widget build(BuildContext context) {
@@ -468,12 +519,16 @@ class _Totales extends StatelessWidget {
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Paleta.fondoSuave,
         borderRadius: BorderRadius.circular(14),
       ),
-      child: Column(
+      child: InkWell(
+        onTap: venta.cabezas == 0 ? null : onResumen,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
@@ -543,7 +598,27 @@ class _Totales extends StatelessWidget {
               onPressed: onPrecioATodos,
             ),
           ],
+          if (venta.cabezas > 0) ...[
+            const SizedBox(height: 10),
+            const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  'VER EL RESUMEN',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: Paleta.textoSuave,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                Icon(Icons.chevron_right, size: 20, color: Paleta.textoSuave),
+              ],
+            ),
+          ],
         ],
+        ),
+      ),
       ),
     );
   }
@@ -555,12 +630,14 @@ class _Renglon extends StatelessWidget {
     required this.renglon,
     required this.cerrada,
     required this.onPrecio,
+    required this.onPeso,
     required this.onQuitar,
     required this.onFicha,
   });
 
   final RenglonVenta renglon;
   final bool cerrada;
+  final VoidCallback onPeso;
   final VoidCallback onPrecio;
   final VoidCallback onQuitar;
   final VoidCallback onFicha;
@@ -589,14 +666,30 @@ class _Renglon extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 2),
-                Text(
-                  renglon.pesoVentaKg == null
-                      ? 'sin pesar'
-                      : '${renglon.pesoVentaKg!.toStringAsFixed(0)} kg',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    color: renglon.pesado ? Paleta.texto : Paleta.aviso,
+                InkWell(
+                  onTap: cerrada ? null : onPeso,
+                  child: Row(
+                    children: [
+                      Text(
+                        renglon.pesoVentaKg == null
+                            ? 'sin pesar'
+                            : '${renglon.pesoVentaKg!.toStringAsFixed(0)} kg',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          color:
+                              renglon.pesado ? Paleta.texto : Paleta.aviso,
+                        ),
+                      ),
+                      if (!cerrada) ...[
+                        const SizedBox(width: 6),
+                        const Icon(
+                          Icons.edit,
+                          size: 16,
+                          color: Paleta.textoSuave,
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ],

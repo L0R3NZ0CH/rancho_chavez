@@ -23,6 +23,7 @@ class AnimalEnLista {
     required this.enUbicacionDesde,
     required this.ultimoPesoKg,
     required this.ultimoPesoFecha,
+    required this.deBaja,
     required this.categoriaCorregida,
     required this.proximoCambioCategoria,
   });
@@ -63,6 +64,9 @@ class AnimalEnLista {
 
   final double? ultimoPesoKg;
   final int? ultimoPesoFecha;
+
+  /// El animal ya salio del hato: vendido, muerto, robado o sacrificado.
+  final bool deBaja;
 
   bool get pendienteDeAretar => numeroArete == null;
 
@@ -111,9 +115,46 @@ class RepoHato {
     }
   }
 
+  /// Un solo animal, **aunque ya haya salido del hato**.
+  ///
+  /// La ficha no puede depender de la lista del hato: un animal vendido sale de
+  /// esa lista, y es justo cuando mas se quiere ver su ficha —para saber que
+  /// paso con el, cuanto peso, en cuanto se fue.
+  Stream<AnimalEnLista?> verAnimal(
+    String animalId, {
+    required int hoy,
+    UmbralesCategoria umbrales = const UmbralesCategoria(),
+  }) async* {
+    Future<AnimalEnLista?> armarUno() async {
+      final todos = await _armar(
+        hoy: hoy,
+        umbrales: umbrales,
+        incluirBajas: true,
+      );
+      return todos.where((a) => a.animal.id == animalId).firstOrNull;
+    }
+
+    yield await armarUno();
+    await for (final _ in db.tableUpdates(
+      TableUpdateQuery.onAllTables([
+        db.animales,
+        db.aretes,
+        db.ubicaciones,
+        db.eventos,
+        db.eventoMovimientos,
+        db.eventoPesos,
+        db.eventoCorreccionCategorias,
+        db.eventoBajas,
+      ]),
+    )) {
+      yield await armarUno();
+    }
+  }
+
   Future<List<AnimalEnLista>> _armar({
     required int hoy,
     required UmbralesCategoria umbrales,
+    bool incluirBajas = false,
   }) async {
     final deBaja = await db.animalesDadosDeBaja();
 
@@ -123,7 +164,7 @@ class RepoHato {
     final listaAnimales = (await (db.select(db.animales)
               ..where((a) => a.eliminadoEn.isNull()))
             .get())
-        .where((a) => !deBaja.contains(a.id))
+        .where((a) => incluirBajas || !deBaja.contains(a.id))
         .toList();
     if (listaAnimales.isEmpty) return const [];
 
@@ -165,6 +206,7 @@ class RepoHato {
       for (final animal in listaAnimales)
         _uno(
           animal: animal,
+          deBaja: deBaja.contains(animal.id),
           eventos: porAnimal[animal.id] ?? const [],
           numeroArete: aretePorAnimal[animal.id],
           nombreUbicacion: nombreUbicacion,
@@ -179,6 +221,7 @@ class RepoHato {
 
   AnimalEnLista _uno({
     required Animal animal,
+    required bool deBaja,
     required List<Evento> eventos,
     required String? numeroArete,
     required Map<String, String> nombreUbicacion,
@@ -281,6 +324,7 @@ class RepoHato {
       enUbicacionDesde: donde?.desde,
       ultimoPesoKg: peso?.kilos,
       ultimoPesoFecha: peso?.fechaEvento,
+      deBaja: deBaja,
     );
   }
 }
