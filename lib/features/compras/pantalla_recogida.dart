@@ -7,8 +7,9 @@ import '../../comun/fechas.dart';
 import '../../comun/tema.dart';
 import '../../data/db/base_datos.dart';
 import '../../data/repos/compras.dart';
+import '../../domain/reglas/costo_compra.dart';
 import '../escaneo/pantalla_escaneo.dart';
-import '../ventas/dialogo_peso.dart';
+import 'dialogo_precio_compra.dart';
 
 /// La pantalla de una compra, con el vendedor enfrente.
 ///
@@ -141,17 +142,27 @@ class _PantallaRecogidaState extends State<PantallaRecogida> {
   // -------------------------------------------------------------- segunda vuelta
 
   Future<void> _precio(RenglonCompra r) async {
-    final precio = await pedirNumero(
+    final trato = await pedirPrecioDeCompra(
       context,
-      titulo: 'Precio de ${r.titulo}',
-      explicacion: 'Por kilo. Se arrastra a los de abajo que no tengan.',
-      prefijo: r'$ ',
-      sufijo: 'por kg',
-      inicial: r.precioPorKilo,
+      titulo: r.titulo,
+      formaInicial: r.forma,
+      precioInicial: r.forma == FormaCotizacion.porCabeza
+          ? r.precioPorCabeza
+          : r.precioPorKilo,
+      pesoCompraKg: r.pesoCompraKg,
     );
-    if (precio == null || !mounted) return;
+    if (trato == null || !mounted) return;
 
-    await _arrastrar(r, precioPorKilo: precio);
+    await _arrastrar(
+      r,
+      forma: trato.forma == FormaCotizacion.porCabeza
+          ? 'porCabeza'
+          : 'porKilo',
+      precioPorKilo:
+          trato.forma == FormaCotizacion.porKilo ? trato.precio : null,
+      precioPorCabeza:
+          trato.forma == FormaCotizacion.porCabeza ? trato.precio : null,
+    );
   }
 
   Future<void> _vendedor(RenglonCompra r) async {
@@ -174,7 +185,9 @@ class _PantallaRecogidaState extends State<PantallaRecogida> {
   Future<void> _arrastrar(
     RenglonCompra r, {
     String? vendedor,
+    String? forma,
     double? precioPorKilo,
+    double? precioPorCabeza,
   }) async {
     final renglones = _compra?.renglones ?? const <RenglonCompra>[];
     final desde = renglones.indexWhere((x) => x.animal.id == r.animal.id);
@@ -188,7 +201,9 @@ class _PantallaRecogidaState extends State<PantallaRecogida> {
         loteCompraId: widget.compraId,
         animalId: actual.animal.id,
         vendedor: vendedor,
+        formaCalculo: forma,
         precioPorKilo: precioPorKilo,
+        precioPorCabeza: precioPorCabeza,
       );
     }
     await _cargar();
@@ -500,10 +515,8 @@ class _Renglon extends StatelessWidget {
             children: [
               Expanded(
                 child: _Campo(
-                  etiqueta: renglon.precioPorKilo == null
-                      ? '\$ __ por kg'
-                      : '${_pesos(renglon.precioPorKilo!)} por kg',
-                  vacio: renglon.precioPorKilo == null,
+                  etiqueta: _comoSeCotizo(renglon),
+                  vacio: renglon.costo.falta == FaltaDato.precio,
                   onTap: onPrecio,
                 ),
               ),
@@ -521,6 +534,18 @@ class _Renglon extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Como quedo cotizado el animal, en pocas palabras.
+String _comoSeCotizo(RenglonCompra r) {
+  if (r.forma == FormaCotizacion.porCabeza) {
+    return r.precioPorCabeza == null
+        ? '\$ __ la cabeza'
+        : '${_pesos(r.precioPorCabeza!)} la cabeza';
+  }
+  return r.precioPorKilo == null
+      ? '\$ __ por kg'
+      : '${_pesos(r.precioPorKilo!)} por kg';
 }
 
 class _Campo extends StatelessWidget {

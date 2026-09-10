@@ -5,12 +5,14 @@ import '../../comun/fechas.dart';
 import '../../comun/tema.dart';
 import '../../data/db/base_datos.dart';
 import '../../data/repos/hato.dart';
+import '../../data/repos/pendientes.dart';
 import '../../data/respaldo.dart';
 import '../animales/pantalla_alta.dart';
 import '../animales/pantalla_ficha.dart';
 import '../animales/pantalla_nacimiento.dart';
 import '../compras/pantalla_compras.dart';
 import '../compras/pantalla_recogida.dart';
+import '../compras/pantalla_sin_costo.dart';
 import '../escaneo/pantalla_escaneo.dart';
 import '../manejo/pantalla_pasar_lista.dart';
 import '../respaldo/pantalla_respaldo.dart';
@@ -234,6 +236,11 @@ class _PantallaLugaresState extends State<PantallaLugares> {
           builder: (context, snapUbis) {
             final lugares = snapUbis.data ?? const <Ubicacion>[];
 
+            return StreamBuilder<List<SinCosto>>(
+              stream: RepoPendientes(widget.db).verSinCosto(),
+              builder: (context, snapSinCosto) {
+
+            final sinCosto = snapSinCosto.data?.length ?? 0;
             final porLugar = <String, int>{};
             var sinLugar = 0;
             var pendientes = 0;
@@ -385,7 +392,24 @@ class _PantallaLugaresState extends State<PantallaLugares> {
                                 ),
                               ),
                             ),
-                          if (sinLugar > 0 || pendientes > 0)
+                          // Un hueco que nadie ve nunca se tapa. Estos
+                          // animales salen en blanco en el resumen de la
+                          // venta, y desde aqui se arreglan en un toque.
+                          if (sinCosto > 0)
+                            _Renglon(
+                              nombre: 'Falta el costo',
+                              cuantos: sinCosto,
+                              destacado: true,
+                              icono: Icons.attach_money,
+                              onTap: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      PantallaSinCosto(db: widget.db),
+                                ),
+                              ),
+                            ),
+                          if (sinLugar > 0 || pendientes > 0 || sinCosto > 0)
                             const SizedBox(height: 14),
                           if (lugares.isEmpty && hato.isEmpty)
                             const _Vacio()
@@ -445,6 +469,8 @@ class _PantallaLugaresState extends State<PantallaLugares> {
                   ],
                 ),
               ),
+            );
+              },
             );
           },
         );
