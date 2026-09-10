@@ -78,20 +78,46 @@ class RepoHato {
   Stream<List<AnimalEnLista>> verHato({
     required int hoy,
     UmbralesCategoria umbrales = const UmbralesCategoria(),
-  }) {
-    // Cualquier cambio en estas cuatro tablas vuelve a disparar el calculo.
-    final disparador = db.select(db.animales).watch();
+  }) async* {
+    // Se escuchan **todas** las tablas de las que depende el estado derivado.
+    //
+    // Antes solo se miraba la tabla de animales, y eso dejaba la pantalla
+    // rezagada: mover un animal de potrero no cambia al animal, agrega un
+    // evento. La lista se refrescaba hasta que se volvia a entrar, y parecia
+    // que la app iba lenta cuando en realidad no se estaba enterando.
+    final cambios = db.tableUpdates(
+      TableUpdateQuery.onAllTables([
+        db.animales,
+        db.aretes,
+        db.ubicaciones,
+        db.eventos,
+        db.eventoMovimientos,
+        db.eventoPesos,
+        db.eventoCorreccionCategorias,
+        db.eventoBajas,
+      ]),
+    );
 
-    return disparador.asyncMap((_) => _armar(hoy: hoy, umbrales: umbrales));
+    yield await _armar(hoy: hoy, umbrales: umbrales);
+    await for (final _ in cambios) {
+      yield await _armar(hoy: hoy, umbrales: umbrales);
+    }
   }
 
   Future<List<AnimalEnLista>> _armar({
     required int hoy,
     required UmbralesCategoria umbrales,
   }) async {
-    final listaAnimales = await (db.select(db.animales)
-          ..where((a) => a.eliminadoEn.isNull()))
-        .get();
+    final deBaja = await db.animalesDadosDeBaja();
+
+    // Un animal vendido, muerto, robado o sacrificado deja de contar en el
+    // inventario y en los potreros. No se borra ni se marca con una columna de
+    // estado: se sabe porque tiene un evento de baja.
+    final listaAnimales = (await (db.select(db.animales)
+              ..where((a) => a.eliminadoEn.isNull()))
+            .get())
+        .where((a) => !deBaja.contains(a.id))
+        .toList();
     if (listaAnimales.isEmpty) return const [];
 
     final listaAretes = await (db.select(db.aretes)

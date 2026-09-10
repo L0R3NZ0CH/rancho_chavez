@@ -42,6 +42,14 @@ class _PantallaAltaState extends State<PantallaAlta> {
   final _apodo = TextEditingController();
   final _descripcion = TextEditingController();
 
+  // Datos de la compra. Se capturan aqui y no en otra pantalla porque el
+  // momento natural para saber a cuanto salio un becerro es cuando lo estas
+  // dando de alta, con el arete en la mano.
+  final _vendedor = TextEditingController();
+  final _precioKilo = TextEditingController();
+  late int _fechaCompra = hoyAaaammdd();
+  List<String> _vendedoresPrevios = const [];
+
   List<Ubicacion> _ubicaciones = const [];
   bool _guardando = false;
   bool _resaltarFaltantes = false;
@@ -55,18 +63,43 @@ class _PantallaAltaState extends State<PantallaAlta> {
 
   @override
   void dispose() {
-    _apodo.dispose();
-    _descripcion.dispose();
+    for (final c in [_apodo, _descripcion, _vendedor, _precioKilo]) {
+      c.dispose();
+    }
     super.dispose();
+  }
+
+  /// Lo que costo este animal, calculado al vuelo mientras se captura.
+  ///
+  /// Se muestra en pantalla a proposito: ver "212 kg x $62 = $13,144" antes de
+  /// guardar es lo que permite cachar un dedazo en el precio o en el peso.
+  double? get _costoCalculado {
+    final precio = double.tryParse(_precioKilo.text.trim());
+    if (precio == null || precio <= 0) return null;
+    final peso = _pesoKg;
+    if (peso == null || peso <= 0) return null;
+    return peso * precio;
   }
 
   Future<void> _cargarPreferencias() async {
     final ubis = await widget.db.verUbicaciones().first;
     final ultimaUbicacion = await widget.db.leerAjuste('ultimaUbicacionId');
     final ultimoProposito = await widget.db.leerAjuste('ultimoProposito');
+    final vendedores = await widget.db.vendedoresUsados();
+    final ultimoVendedor = await widget.db.leerAjuste('ultimoVendedor');
+    final ultimoPrecio = await widget.db.leerAjuste('ultimoPrecioKilo');
     if (!mounted) return;
 
     setState(() {
+      _vendedoresPrevios = vendedores;
+      // Se recuerdan del alta anterior: en una descarga de camion los cinco
+      // becerros vienen del mismo senor y al mismo precio.
+      if (_vendedor.text.isEmpty && ultimoVendedor != null) {
+        _vendedor.text = ultimoVendedor;
+      }
+      if (_precioKilo.text.isEmpty && ultimoPrecio != null) {
+        _precioKilo.text = ultimoPrecio;
+      }
       _ubicaciones = ubis;
       _proposito = ultimoProposito ?? 'comercial';
       // Se recuerda el ultimo lugar usado, pero no se inventa uno: si el
@@ -135,6 +168,25 @@ class _PantallaAltaState extends State<PantallaAlta> {
         if (_sexo == null) 'el sexo',
       ];
 
+  Future<void> _elegirFechaCompra() async {
+    final hoy = DateTime.now();
+    final elegida = await showDatePicker(
+      context: context,
+      initialDate: _comoFecha(_fechaCompra),
+      firstDate: DateTime(hoy.year - 5),
+      lastDate: hoy,
+      helpText: 'Cuándo lo compraste',
+    );
+    if (elegida == null || !mounted) return;
+    setState(() => _fechaCompra = hoyAaaammdd(elegida));
+  }
+
+  DateTime _comoFecha(int aaaammdd) => DateTime(
+        aaaammdd ~/ 10000,
+        (aaaammdd ~/ 100) % 100,
+        aaaammdd % 100,
+      );
+
   Future<void> _guardar() async {
     if (_guardando) return;
 
@@ -192,9 +244,33 @@ class _PantallaAltaState extends State<PantallaAlta> {
         await widget.db.registrarPeso(
           animalId: id,
           kilos: _pesoKg!,
-          fecha: hoy,
+          fecha: _origen == 'comprado' ? _fechaCompra : hoy,
           tipoPesaje: _origen == 'comprado' ? 'compra' : 'rutina',
         );
+      }
+
+      final vendedor = _vendedor.text.trim();
+      if (_origen == 'comprado' && vendedor.isNotEmpty) {
+        final precio = double.tryParse(_precioKilo.text.trim());
+        // El viaje se arma solo: mismo dia y mismo vendedor caen en la misma
+        // compra sin que nadie tenga que crearla.
+        final compra = await widget.db.compraDelDia(
+          fecha: _fechaCompra,
+          vendedor: vendedor,
+          formaCalculo: 'porKilo',
+          precioPorKilo: precio,
+        );
+        await widget.db.agregarAnimalALote(
+          loteCompraId: compra,
+          animalId: id,
+        );
+        await widget.db.escribirAjuste('ultimoVendedor', vendedor);
+        if (precio != null) {
+          await widget.db.escribirAjuste(
+            'ultimoPrecioKilo',
+            _precioKilo.text.trim(),
+          );
+        }
       }
 
       // Se recuerdan para el siguiente animal: en una jornada se dan de alta
@@ -382,6 +458,75 @@ class _PantallaAltaState extends State<PantallaAlta> {
                       ],
                     ),
                   ),
+                  if (_origen == 'comprado')
+                    _Seccion(
+                      titulo: 'La compra',
+                      subtitulo: 'Opcional, pero es el único momento en que se '
+                          'sabe a cuánto salió.',
+                      hijo: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _FilaFecha(
+                            fecha: _fechaCompra,
+                            onCambiar: _elegirFechaCompra,
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: _vendedor,
+                            style: const TextStyle(fontSize: 20),
+                            decoration: const InputDecoration(
+                              border: OutlineInputBorder(),
+                              labelText: 'A quién se lo compraste',
+                            ),
+                            onChanged: (_) => setState(() {}),
+                          ),
+                          if (_vendedoresPrevios.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 10),
+                              child: Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  for (final v in _vendedoresPrevios)
+                                    ActionChip(
+                                      label: Text(
+                                        v,
+                                        style: const TextStyle(fontSize: 16),
+                                      ),
+                                      onPressed: () =>
+                                          setState(() => _vendedor.text = v),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: _precioKilo,
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
+                            style: const TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.w700,
+                            ),
+                            decoration: const InputDecoration(
+                              border: OutlineInputBorder(),
+                              prefixText: r'$ ',
+                              suffixText: 'por kg',
+                              labelText: 'Precio por kilo',
+                            ),
+                            onChanged: (_) => setState(() {}),
+                          ),
+                          const SizedBox(height: 12),
+                          _Cuenta(
+                            pesoKg: _pesoKg,
+                            precioKilo:
+                                double.tryParse(_precioKilo.text.trim()),
+                            total: _costoCalculado,
+                          ),
+                        ],
+                      ),
+                    ),
                   _Seccion(
                     titulo: 'Edad aproximada',
                     subtitulo:
@@ -419,7 +564,8 @@ class _PantallaAltaState extends State<PantallaAlta> {
                         border: OutlineInputBorder(),
                         hintText: 'kg',
                       ),
-                      onChanged: (v) => _pesoKg = double.tryParse(v.trim()),
+                      onChanged: (v) =>
+                          setState(() => _pesoKg = double.tryParse(v.trim())),
                     ),
                   ),
                   _Seccion(
@@ -692,6 +838,121 @@ class _DialogoUbicacionState extends State<_DialogoUbicacion> {
           child: const Text('Crear', style: TextStyle(fontSize: 18)),
         ),
       ],
+    );
+  }
+}
+
+
+/// La fecha de la compra, con un boton grande para cambiarla.
+///
+/// Por omision es hoy, porque lo normal es capturar el mismo dia. Pero se puede
+/// mover: a veces el ganado llega el sabado y se captura el lunes, y la fecha
+/// del hecho es la del sabado.
+class _FilaFecha extends StatelessWidget {
+  const _FilaFecha({required this.fecha, required this.onCambiar});
+
+  final int fecha;
+  final VoidCallback onCambiar;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Paleta.fondoSuave,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onCambiar,
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 64),
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            children: [
+              const Icon(Icons.event, size: 26, color: Paleta.textoSuave),
+              const SizedBox(width: 12),
+              const Text(
+                'Comprado el',
+                style: TextStyle(fontSize: 17, color: Paleta.textoSuave),
+              ),
+              const Spacer(),
+              Text(
+                formateaAaaammdd(fecha),
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Icon(Icons.edit, size: 22, color: Paleta.textoSuave),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// La multiplicacion, a la vista.
+///
+/// Ver "212 kg x $62 = $13,144" antes de guardar es lo que permite cachar un
+/// dedazo en el peso o en el precio. Cuando falta un factor lo dice, en vez de
+/// mostrar un cero que se lee como si el animal hubiera salido gratis.
+class _Cuenta extends StatelessWidget {
+  const _Cuenta({
+    required this.pesoKg,
+    required this.precioKilo,
+    required this.total,
+  });
+
+  final double? pesoKg;
+  final double? precioKilo;
+  final double? total;
+
+  @override
+  Widget build(BuildContext context) {
+    final listo = total != null;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: listo ? const Color(0xFFE8F3EC) : Paleta.fondoSuave,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: listo ? Paleta.accion : Paleta.borde,
+          width: listo ? 2 : 1.5,
+        ),
+      ),
+      child: listo
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${pesoKg!.toStringAsFixed(0)} kg  ×  '
+                  '\$${precioKilo!.toStringAsFixed(2)}',
+                  style: const TextStyle(
+                    fontSize: 17,
+                    color: Paleta.textoSuave,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '\$${total!.toStringAsFixed(2)}',
+                  style: const TextStyle(
+                    fontSize: 34,
+                    fontWeight: FontWeight.w900,
+                    color: Paleta.accion,
+                  ),
+                ),
+              ],
+            )
+          : Text(
+              pesoKg == null && precioKilo == null
+                  ? 'Pon el peso y el precio por kilo y aquí sale lo que costó.'
+                  : pesoKg == null
+                      ? 'Falta el peso para poder sacar la cuenta.'
+                      : 'Falta el precio por kilo para poder sacar la cuenta.',
+              style: const TextStyle(fontSize: 16, color: Paleta.textoSuave),
+            ),
     );
   }
 }

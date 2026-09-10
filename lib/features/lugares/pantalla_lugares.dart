@@ -11,6 +11,7 @@ import '../animales/pantalla_ficha.dart';
 import '../compras/pantalla_compras.dart';
 import '../escaneo/pantalla_escaneo.dart';
 import '../respaldo/pantalla_respaldo.dart';
+import '../ventas/pantalla_ventas.dart';
 import 'pantalla_animales_del_lugar.dart';
 
 /// La pantalla de inicio: los lugares del rancho.
@@ -116,6 +117,13 @@ class _PantallaLugaresState extends State<PantallaLugares> {
     if (mounted) await _revisarRespaldo();
   }
 
+  Future<void> _venta() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => PantallaVentas(db: widget.db)),
+    );
+  }
+
   Future<void> _nuevoLugar() async {
     final nombre = await showDialog<String>(
       context: context,
@@ -191,30 +199,57 @@ class _PantallaLugaresState extends State<PantallaLugares> {
                       : '${hato.length} ${hato.length == 1 ? 'animal' : 'animales'}',
                 ),
                 actions: [
+                  // Vender es de diario y va a la vista. Lo demas vive en el
+                  // menu: la barra de arriba se llena rapido y lo que se usa
+                  // todos los dias es escanear.
                   IconButton(
-                    tooltip: 'Compras',
-                    iconSize: 30,
-                    icon: const Icon(Icons.local_shipping_outlined),
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => PantallaCompras(db: widget.db),
-                      ),
-                    ),
+                    tooltip: 'Venta',
+                    iconSize: 32,
+                    icon: const Icon(Icons.sell_outlined),
+                    onPressed: _venta,
                   ),
-                  IconButton(
-                    tooltip: 'Respaldar',
+                  PopupMenuButton<String>(
+                    tooltip: 'Más',
                     iconSize: 30,
-                    icon: const Icon(Icons.backup_outlined),
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => PantallaRespaldo(
-                          db: widget.db,
-                          bloqueante: false,
+                    onSelected: (opcion) => switch (opcion) {
+                      'compras' => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => PantallaCompras(db: widget.db),
+                          ),
+                        ),
+                      _ => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => PantallaRespaldo(
+                              db: widget.db,
+                              bloqueante: false,
+                            ),
+                          ),
+                        ),
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(
+                        value: 'compras',
+                        child: ListTile(
+                          leading: Icon(Icons.local_shipping_outlined),
+                          title: Text(
+                            'Compras',
+                            style: TextStyle(fontSize: 19),
+                          ),
                         ),
                       ),
-                    ),
+                      PopupMenuItem(
+                        value: 'respaldo',
+                        child: ListTile(
+                          leading: Icon(Icons.backup_outlined),
+                          title: Text(
+                            'Respaldo',
+                            style: TextStyle(fontSize: 19),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),

@@ -300,3 +300,64 @@ class LoteCompraAnimales extends Table with Auditoria {
   @override
   Set<Column> get primaryKey => {id};
 }
+
+/// Una venta: lo que se le vendio a un comprador un dia.
+///
+/// **Nada es obligatorio para empezar.** Se abre la venta y se empieza a pesar
+/// de inmediato; el comprador y el precio se llenan cuando se pueda, antes o
+/// despues. El trato casi siempre se acuerda antes de subir el primer animal a
+/// la bascula, pero se puede cambiar o quedar pendiente, y un olvido no debe
+/// convertirse en un bloqueo a media manga.
+@DataClassName('LoteVenta')
+class LotesVenta extends Table with Auditoria {
+  IntColumn get fecha => integer()();
+  TextColumn get comprador => text().nullable()();
+  TextColumn get destino => text().nullable()();
+  TextColumn get notas => text().nullable()();
+
+  /// Nulo mientras la venta es un borrador.
+  ///
+  /// Los animales se dan de baja al **cerrar**, no al irlos metiendo. Asi una
+  /// venta interrumpida a la mitad no deja el hato descuadrado.
+  IntColumn get cerradoEn => integer().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+/// Que animales van en la venta, y a como quedo cada uno.
+///
+/// El peso de venta no vive aqui: es un evento de peso con tipo 'venta', porque
+/// es una medicion y le toca la regla 4. Pesar a un animal es un hecho que vale
+/// aunque despues la venta se caiga.
+@DataClassName('AnimalVendido')
+class LoteVentaAnimales extends Table with Auditoria {
+  TextColumn get loteVentaId => text().references(LotesVenta, #id)();
+  TextColumn get animalId => text().references(Animales, #id)();
+
+  /// Lo acordado para este animal. Nulo mientras no se capture: la columna
+  /// empieza vacia y se llena de un jalon con el precio del trato, o uno por
+  /// uno cuando hay excepciones.
+  RealColumn get precioPorKilo => real().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+/// El animal salio del hato: vendido, muerto, robado o sacrificado.
+///
+/// Es evento, no una columna de estado: el animal sigue existiendo con todo su
+/// historial, simplemente deja de contar en el inventario y en los potreros.
+@DataClassName('EventoBaja')
+class EventoBajas extends Table {
+  TextColumn get eventoId => text().references(Eventos, #id)();
+
+  /// 'venta', 'muerte', 'robo' o 'sacrificio'.
+  TextColumn get motivo => text()();
+
+  TextColumn get causa => text().nullable()();
+  TextColumn get loteVentaId => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {eventoId};
+}

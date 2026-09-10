@@ -5,6 +5,7 @@ import '../../comun/fechas.dart';
 import '../../comun/tema.dart';
 import '../../data/db/base_datos.dart';
 import '../../data/repos/hato.dart';
+import '../../domain/modelos/tipos.dart';
 import '../../domain/reglas/estado_animal.dart';
 import '../escaneo/pantalla_escaneo.dart';
 
@@ -201,11 +202,14 @@ class _Encabezado extends StatelessWidget {
             ),
           ),
         const SizedBox(height: 18),
-        _Dato(
-          etiqueta: 'Categoría',
-          valor: datos.categoria.etiqueta +
-              (datos.categoriaCorregida ? '  (puesta a mano)' : ''),
-        ),
+        // Solo cuando se sabe: ver "Sin clasificar" en cada ficha no le dice
+        // nada a nadie.
+        if (datos.categoria != Categoria.sinClasificar)
+          _Dato(
+            etiqueta: 'Categoría',
+            valor: datos.categoria.etiqueta +
+                (datos.categoriaCorregida ? '  (puesta a mano)' : ''),
+          ),
         if (datos.proximoCambioCategoria != null)
           _Dato(
             etiqueta: 'Cambia de categoría',

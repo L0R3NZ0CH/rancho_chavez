@@ -1,9 +1,14 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../comun/tema.dart';
 import '../../data/db/base_datos.dart';
 import '../../data/respaldo.dart';
+import '../../data/restauracion.dart';
 
 /// La pantalla que no deja seguir hasta respaldar.
 ///
@@ -115,6 +120,106 @@ class _PantallaRespaldoState extends State<PantallaRespaldo> {
     }
   }
 
+  /// Restaurar: elegir el archivo, **revisarlo**, y solo entonces reemplazar.
+  ///
+  /// El paso de revisar no es un adorno. Restaurar a ciegas y descubrir despues
+  /// que el archivo venia truncado es perder el hato dos veces: una por el
+  /// accidente y otra por la restauracion.
+  Future<void> _restaurar() async {
+    final elegido = await FilePicker.pickFile(
+      dialogTitle: 'Elige el archivo de respaldo',
+    );
+    final camino = elegido?.path;
+    if (camino == null || !mounted) return;
+
+    setState(() {
+      _trabajando = true;
+      _error = null;
+    });
+
+    ResumenRespaldo? resumen;
+    try {
+      resumen = await revisarRespaldo(File(camino));
+      if (!mounted) return;
+
+      final confirmado = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (c) => AlertDialog(
+          title: const Text('Revisa antes de restaurar'),
+          content: Text(
+            'Ese respaldo trae:\n\n'
+            '   ${resumen!.animales} animales\n'
+            '   ${resumen.eventos} eventos\n'
+            '   ${resumen.fotos} fotos\n\n'
+            'Al restaurar, TODO lo que tienes ahora en el celular se '
+            'reemplaza por eso.\n\n'
+            'Se guarda una copia de lo actual por si te arrepientes.',
+            style: const TextStyle(fontSize: 17),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: const Text('Cancelar', style: TextStyle(fontSize: 18)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: const Text(
+                'Restaurar',
+                style: TextStyle(
+                  fontSize: 18,
+                  color: Paleta.alerta,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+
+      if (!(confirmado ?? false)) {
+        descartarRespaldo(resumen);
+        return;
+      }
+
+      // La base tiene que estar cerrada antes de pisarla.
+      await widget.db.close();
+      await aplicarRespaldo(resumen);
+      resumen = null;
+
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (c) => AlertDialog(
+          title: const Text('Listo'),
+          content: const Text(
+            'Los datos quedaron restaurados.\n\n'
+            'La app se va a cerrar. Ábrela otra vez para verlos.',
+            style: TextStyle(fontSize: 17),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c),
+              child: const Text('Cerrar la app',
+                  style: TextStyle(fontSize: 18)),
+            ),
+          ],
+        ),
+      );
+      // La base viva quedo cerrada y reemplazada; seguir aqui daria errores en
+      // cada pantalla. Se cierra la app para que vuelva a abrir limpia.
+      await SystemNavigator.pop();
+    } on RespaldoInvalido catch (e) {
+      if (mounted) setState(() => _error = e.motivo);
+    } on Exception catch (e) {
+      if (resumen != null) descartarRespaldo(resumen);
+      if (mounted) setState(() => _error = '$e');
+    } finally {
+      if (mounted) setState(() => _trabajando = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -202,6 +307,19 @@ class _PantallaRespaldoState extends State<PantallaRespaldo> {
                   icono: Icons.backup,
                   onPressed: _trabajando ? null : _respaldar,
                 ),
+                // Restaurar solo aparece cuando no hay trabajo sin respaldar.
+                // Ofrecerlo en la pantalla que bloquea por deuda seria invitar
+                // a pisar justo lo que todavia no se ha guardado.
+                if (!widget.bloqueante) ...[
+                  const SizedBox(height: 10),
+                  BotonGrande(
+                    etiqueta: 'RESTAURAR DE UN RESPALDO',
+                    icono: Icons.restore,
+                    contorno: true,
+                    color: Paleta.textoSuave,
+                    onPressed: _trabajando ? null : _restaurar,
+                  ),
+                ],
                 const SizedBox(height: 12),
               ],
             ),

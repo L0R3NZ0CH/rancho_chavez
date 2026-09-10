@@ -4,6 +4,7 @@ import '../../comun/fechas.dart';
 import '../../comun/tema.dart';
 import '../../data/db/base_datos.dart';
 import '../../data/repos/hato.dart';
+import '../../domain/modelos/tipos.dart';
 import '../../domain/reglas/estado_animal.dart';
 import '../animales/pantalla_ficha.dart';
 
@@ -252,12 +253,20 @@ class _Renglon extends StatelessWidget {
                 'Sin pesar',
                 style: TextStyle(fontSize: 17, color: Paleta.textoSuave),
               ),
-            const SizedBox(height: 2),
-            Text(
-              datos.categoria.etiqueta +
-                  (datos.categoriaCorregida ? ' (a mano)' : ''),
-              style: const TextStyle(fontSize: 16, color: Paleta.textoSuave),
-            ),
+            // La categoria solo se pinta cuando se sabe.
+            //
+            // Sin fecha de nacimiento sale "Sin clasificar", y un renglon que
+            // dice "no se" debajo de cada animal es ruido que estorba para leer
+            // el peso, que es lo que de verdad se mira. El calculo sigue ahi
+            // para el dia que se capturen edades.
+            if (datos.categoria != Categoria.sinClasificar) ...[
+              const SizedBox(height: 2),
+              Text(
+                datos.categoria.etiqueta +
+                    (datos.categoriaCorregida ? ' (a mano)' : ''),
+                style: const TextStyle(fontSize: 16, color: Paleta.textoSuave),
+              ),
+            ],
           ],
         ),
       ),

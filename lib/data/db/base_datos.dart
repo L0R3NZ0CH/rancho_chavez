@@ -14,7 +14,8 @@ const _uuid = Uuid();
 /// Version 2: el esquema del hato. Aqui empieza el compromiso de no perder
 ///            datos nunca mas.
 /// Version 3: lotes de compra, sus gastos y sus animales. Solo agrega tablas.
-const versionEsquema = 3;
+/// Version 4: ventas y bajas. Solo agrega tablas.
+const versionEsquema = 4;
 
 @DriftDatabase(
   tables: [
@@ -30,6 +31,9 @@ const versionEsquema = 3;
     Configuracion,
     LotesCompra,
     LoteCompraAnimales,
+    LotesVenta,
+    LoteVentaAnimales,
+    EventoBajas,
   ],
 )
 class BaseDatos extends _$BaseDatos {
@@ -73,6 +77,13 @@ class BaseDatos extends _$BaseDatos {
             await customStatement('DROP TABLE IF EXISTS lote_compra_gastos');
             await m.createTable(lotesCompra);
             await m.createTable(loteCompraAnimales);
+          }
+
+          if (desde <= 3) {
+            // Ventas y bajas: solo agrega tablas, no toca una sola fila.
+            await m.createTable(lotesVenta);
+            await m.createTable(loteVentaAnimales);
+            await m.createTable(eventoBajas);
           }
 
           if (hasta > versionEsquema) {
@@ -530,6 +541,36 @@ class BaseDatos extends _$BaseDatos {
     return s.id;
   }
 
+  /// Encuentra la compra de ese dia con ese vendedor, o la crea.
+  ///
+  /// Un viaje es un dia y un vendedor. Cuando se dan de alta cinco becerros
+  /// comprados el mismo dia al mismo senor, los cinco caen solos en la misma
+  /// compra sin que nadie tenga que crearla ni elegirla. Si uno vino de otro
+  /// dueno, se le abre la suya, tambien sola.
+  Future<String> compraDelDia({
+    required int fecha,
+    required String vendedor,
+    required String formaCalculo,
+    double? precioPorKilo,
+    String? lugar,
+  }) async {
+    final existente = await (select(lotesCompra)
+          ..where((l) =>
+              l.fecha.equals(fecha) &
+              l.vendedor.equals(vendedor) &
+              l.eliminadoEn.isNull()))
+        .getSingleOrNull();
+    if (existente != null) return existente.id;
+
+    return crearLoteCompra(
+      fecha: fecha,
+      vendedor: vendedor,
+      formaCalculo: formaCalculo,
+      precioPorKilo: precioPorKilo,
+      lugar: lugar,
+    );
+  }
+
   Stream<List<LoteCompra>> verLotesCompra() {
     return (select(lotesCompra)
           ..where((l) => l.eliminadoEn.isNull())
@@ -598,6 +639,14 @@ class BaseDatos extends _$BaseDatos {
       ),
     );
   }
+
+  /// En que compra vino un animal, si es que se compro.
+  Future<AnimalComprado?> compraDelAnimal(String animalId) =>
+      (select(loteCompraAnimales)
+            ..where((a) => a.animalId.equals(animalId) & a.eliminadoEn.isNull())
+            ..orderBy([(a) => OrderingTerm(expression: a.creadoEn)])
+            ..limit(1))
+          .getSingleOrNull();
 
   /// Vendedores ya usados, para autocompletar sin catalogo previo.
   Future<List<String>> vendedoresUsados() async {
@@ -698,7 +747,10 @@ class BaseDatos extends _$BaseDatos {
     final vivos = await (select(animales)
           ..where((a) => a.eliminadoEn.isNull()))
         .get();
-    final idsVivos = vivos.map((a) => a.id).toSet();
+    // Un animal vendido o muerto ya no esta parado en ningun potrero.
+    final deBaja = await animalesDadosDeBaja();
+    final idsVivos =
+        vivos.map((a) => a.id).where((id) => !deBaja.contains(id)).toSet();
 
     return ultimo.entries
         .where((e) => idsVivos.contains(e.key))
@@ -715,6 +767,258 @@ class BaseDatos extends _$BaseDatos {
         modificadoEn: Value(ahora),
       ),
     );
+  }
+
+  // -------------------------------------------------------------------------
+  // Ventas
+  // -------------------------------------------------------------------------
+
+  /// Abre una venta en blanco. Nada obligatorio: se empieza a pesar de una vez.
+  Future<String> crearVenta({required int fecha}) async {
+    final s = await _sello();
+    await into(lotesVenta).insert(
+      LotesVentaCompanion.insert(
+        id: s.id,
+        creadoEn: s.ahora,
+        modificadoEn: s.ahora,
+        dispositivoId: s.dispositivo,
+        fecha: fecha,
+      ),
+    );
+    return s.id;
+  }
+
+  Future<void> actualizarVenta({
+    required String ventaId,
+    required String? comprador,
+    required String? destino,
+    required int fecha,
+  }) async {
+    await (update(lotesVenta)..where((l) => l.id.equals(ventaId))).write(
+      LotesVentaCompanion(
+        comprador: Value(comprador),
+        destino: Value(destino),
+        fecha: Value(fecha),
+        modificadoEn: Value(ahoraUtcMs()),
+      ),
+    );
+  }
+
+  Future<String> agregarAnimalAVenta({
+    required String ventaId,
+    required String animalId,
+    double? precioPorKilo,
+  }) async {
+    final s = await _sello();
+    await into(loteVentaAnimales).insert(
+      LoteVentaAnimalesCompanion.insert(
+        id: s.id,
+        creadoEn: s.ahora,
+        modificadoEn: s.ahora,
+        dispositivoId: s.dispositivo,
+        loteVentaId: ventaId,
+        animalId: animalId,
+        precioPorKilo: Value(precioPorKilo),
+      ),
+    );
+    return s.id;
+  }
+
+  Future<void> quitarAnimalDeVenta({
+    required String ventaId,
+    required String animalId,
+  }) async {
+    final ahora = ahoraUtcMs();
+    await (update(loteVentaAnimales)
+          ..where((t) =>
+              t.loteVentaId.equals(ventaId) & t.animalId.equals(animalId)))
+        .write(
+      LoteVentaAnimalesCompanion(
+        eliminadoEn: Value(ahora),
+        modificadoEn: Value(ahora),
+      ),
+    );
+  }
+
+  /// Le pone precio a un animal de la venta.
+  Future<void> fijarPrecioDeVenta({
+    required String ventaId,
+    required String animalId,
+    required double? precioPorKilo,
+  }) async {
+    await (update(loteVentaAnimales)
+          ..where((t) =>
+              t.loteVentaId.equals(ventaId) & t.animalId.equals(animalId)))
+        .write(
+      LoteVentaAnimalesCompanion(
+        precioPorKilo: Value(precioPorKilo),
+        modificadoEn: Value(ahoraUtcMs()),
+      ),
+    );
+  }
+
+  /// Le pone el mismo precio a todos los de la venta.
+  ///
+  /// Es el boton que resuelve el caso normal: se acordo un precio para el
+  /// camion completo. Los que se hayan negociado aparte se corrigen uno por uno
+  /// despues.
+  Future<void> precioParaTodos({
+    required String ventaId,
+    required double precioPorKilo,
+    bool soloLosQueFaltan = false,
+  }) async {
+    final consulta = update(loteVentaAnimales)
+      ..where((t) => t.loteVentaId.equals(ventaId) & t.eliminadoEn.isNull());
+    if (soloLosQueFaltan) {
+      consulta.where((t) => t.precioPorKilo.isNull());
+    }
+    await consulta.write(
+      LoteVentaAnimalesCompanion(
+        precioPorKilo: Value(precioPorKilo),
+        modificadoEn: Value(ahoraUtcMs()),
+      ),
+    );
+  }
+
+  Future<List<AnimalVendido>> animalesDeVenta(String ventaId) =>
+      (select(loteVentaAnimales)
+            ..where((a) =>
+                a.loteVentaId.equals(ventaId) & a.eliminadoEn.isNull())
+            ..orderBy([(a) => OrderingTerm(expression: a.creadoEn)]))
+          .get();
+
+  Future<LoteVenta?> venta(String id) =>
+      (select(lotesVenta)..where((l) => l.id.equals(id))).getSingleOrNull();
+
+  Stream<List<LoteVenta>> verVentas() {
+    return (select(lotesVenta)
+          ..where((l) => l.eliminadoEn.isNull())
+          ..orderBy([
+            (l) => OrderingTerm(expression: l.fecha, mode: OrderingMode.desc),
+            (l) => OrderingTerm(expression: l.creadoEn, mode: OrderingMode.desc),
+          ]))
+        .watch();
+  }
+
+  Future<List<String>> compradoresUsados() async {
+    final filas = await (selectOnly(lotesVenta, distinct: true)
+          ..addColumns([lotesVenta.comprador])
+          ..where(lotesVenta.eliminadoEn.isNull()))
+        .get();
+    return filas
+        .map((f) => f.read(lotesVenta.comprador))
+        .whereType<String>()
+        .toList()
+      ..sort();
+  }
+
+  /// El peso con el que se va a vender: su pesaje mas reciente de tipo 'venta'.
+  Future<double?> pesoDeVenta(String animalId) async {
+    final consulta = select(eventos).join([
+      innerJoin(eventoPesos, eventoPesos.eventoId.equalsExp(eventos.id)),
+    ])
+      ..where(
+        eventos.animalId.equals(animalId) &
+            eventos.eliminadoEn.isNull() &
+            eventoPesos.tipoPesaje.equals('venta'),
+      )
+      ..orderBy([
+        OrderingTerm(expression: eventos.fechaEvento, mode: OrderingMode.desc),
+        OrderingTerm(expression: eventos.creadoEn, mode: OrderingMode.desc),
+      ])
+      ..limit(1);
+
+    final fila = await consulta.getSingleOrNull();
+    return fila?.readTable(eventoPesos).kilos;
+  }
+
+  /// Cierra la venta: da de baja a todos sus animales.
+  ///
+  /// Aqui es donde ira el candado del **tiempo de retiro**. La especificacion es
+  /// tajante: si un animal trae retiro activo, la venta se bloquea y esa
+  /// validacion no es opcional. Todavia no se puede consultar nada porque los
+  /// tratamientos no existen (son otra fase), asi que por ahora no bloquea
+  /// nada y el retiro lo cuida la persona, no la app. El dia que existan los
+  /// tratamientos, la comprobacion va exactamente aqui, antes del primer
+  /// registro de baja.
+  Future<void> cerrarVenta(String ventaId) async {
+    final venta = await this.venta(ventaId);
+    if (venta == null) return;
+
+    final enVenta = await animalesDeVenta(ventaId);
+
+    await transaction(() async {
+      for (final fila in enVenta) {
+        await registrarBaja(
+          animalId: fila.animalId,
+          motivo: 'venta',
+          fecha: venta.fecha,
+          loteVentaId: ventaId,
+        );
+      }
+      await (update(lotesVenta)..where((l) => l.id.equals(ventaId))).write(
+        LotesVentaCompanion(
+          cerradoEn: Value(ahoraUtcMs()),
+          modificadoEn: Value(ahoraUtcMs()),
+        ),
+      );
+    });
+  }
+
+  Future<String> registrarBaja({
+    required String animalId,
+    required String motivo,
+    required int fecha,
+    String? causa,
+    String? loteVentaId,
+  }) async {
+    final eventoId = await _evento(
+      animalId: animalId,
+      tipo: 'baja',
+      fecha: fecha,
+    );
+    await into(eventoBajas).insert(
+      EventoBajasCompanion.insert(
+        eventoId: eventoId,
+        motivo: motivo,
+        causa: Value(causa),
+        loteVentaId: Value(loteVentaId),
+      ),
+    );
+    return eventoId;
+  }
+
+  /// Los animales que ya salieron del hato.
+  ///
+  /// Se calcula, no se guarda: un animal esta de baja si tiene un evento de
+  /// baja vivo. Se usa para sacarlo de las listas y de los conteos de los
+  /// potreros sin borrarlo ni marcarlo con una columna de estado.
+  Future<Set<String>> animalesDadosDeBaja() async {
+    final filas = await (select(eventos).join([
+      innerJoin(eventoBajas, eventoBajas.eventoId.equalsExp(eventos.id)),
+    ])
+          ..where(eventos.tipo.equals('baja') & eventos.eliminadoEn.isNull()))
+        .get();
+    return filas.map((f) => f.readTable(eventos).animalId).toSet();
+  }
+
+  Future<void> eliminarVenta(String id) async {
+    final ahora = ahoraUtcMs();
+    await transaction(() async {
+      await (update(lotesVenta)..where((l) => l.id.equals(id))).write(
+        LotesVentaCompanion(
+          eliminadoEn: Value(ahora),
+          modificadoEn: Value(ahora),
+        ),
+      );
+      await (update(loteVentaAnimales)..where((a) => a.loteVentaId.equals(id)))
+          .write(
+        LoteVentaAnimalesCompanion(
+          eliminadoEn: Value(ahora),
+          modificadoEn: Value(ahora),
+        ),
+      );
+    });
   }
 
   /// Borrado logico (regla 3). El renglon se queda; solo se marca la fecha.
