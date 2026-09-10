@@ -15,7 +15,9 @@ const _uuid = Uuid();
 ///            datos nunca mas.
 /// Version 3: lotes de compra, sus gastos y sus animales. Solo agrega tablas.
 /// Version 4: ventas y bajas. Solo agrega tablas.
-const versionEsquema = 4;
+/// Version 5: repara la tabla de compras en los celulares que alcanzaron a
+///            instalar la primera forma de la version 3.
+const versionEsquema = 5;
 
 @DriftDatabase(
   tables: [
@@ -86,6 +88,10 @@ class BaseDatos extends _$BaseDatos {
             await m.createTable(eventoBajas);
           }
 
+          if (desde <= 4) {
+            await _repararComprasViejas(m);
+          }
+
           if (hasta > versionEsquema) {
             throw UnsupportedError(
               'No hay migracion definida hasta la version $hasta. Toda '
@@ -101,6 +107,61 @@ class BaseDatos extends _$BaseDatos {
           await customStatement('PRAGMA foreign_keys = ON');
         },
       );
+
+  /// Repara la tabla de compras que quedo con la forma vieja.
+  ///
+  /// La primera version 3 modelaba la compra como un camion de un solo dueno:
+  /// `lotes_compra` traia `monto_total` y `forma_prorrateo_gastos`
+  /// obligatorios, y habia una tabla de gastos que repartir. El dueno rechazo
+  /// ese modelo y la version 3 se redefinio dando por hecho que nunca se habia
+  /// instalado.
+  ///
+  /// Se habia instalado. Entro a un celular mientras `adb` decia "waiting for
+  /// device", y como ese celular ya estaba en la version 3, ninguna migracion
+  /// volvio a tocar la tabla. Crear una compra reventaba con
+  /// SQLITE_CONSTRAINT_NOTNULL: la app ya no manda `monto_total`, pero la
+  /// columna seguia siendo obligatoria.
+  ///
+  /// La leccion, escrita aqui para no repetirla: **una version de esquema que
+  /// se compilo se da por publicada.** Redefinirla en vez de crear la
+  /// siguiente solo es seguro si se puede probar que ningun dispositivo la
+  /// recibio, y un `adb install` que parece fallar no es prueba de nada.
+  Future<void> _repararComprasViejas(Migrator m) async {
+    // La tabla de gastos ya no existe en el modelo.
+    await customStatement('DROP TABLE IF EXISTS lote_compra_gastos');
+
+    if (await _tieneColumna('lotes_compra', 'monto_total')) {
+      // alterTable recrea la tabla con la forma nueva y copia las columnas que
+      // siguen existiendo. Las que se fueron simplemente no se copian.
+      await m.alterTable(TableMigration(lotesCompra));
+    }
+
+    if (await _tieneColumna('lote_compra_animales', 'costo_individual')) {
+      await m.alterTable(
+        TableMigration(
+          loteCompraAnimales,
+          newColumns: [
+            loteCompraAnimales.vendedor,
+            loteCompraAnimales.formaCalculo,
+            loteCompraAnimales.precioPorKilo,
+            loteCompraAnimales.precioPorCabeza,
+          ],
+          columnTransformer: {
+            // El viejo "costo individual" era el precio negociado de ese
+            // animal en concreto. Hoy ese concepto se llama precio por cabeza.
+            loteCompraAnimales.precioPorCabeza:
+                const CustomExpression<double>('costo_individual'),
+          },
+        ),
+      );
+    }
+  }
+
+  /// Si una tabla existe y trae esa columna.
+  Future<bool> _tieneColumna(String tabla, String columna) async {
+    final filas = await customSelect('PRAGMA table_info($tabla)').get();
+    return filas.any((f) => f.read<String>('name') == columna);
+  }
 
   /// Identificador de este celular (regla 2).
   ///
