@@ -8,6 +8,7 @@ import '../../data/repos/hato.dart';
 import '../../data/respaldo.dart';
 import '../animales/pantalla_alta.dart';
 import '../animales/pantalla_ficha.dart';
+import '../animales/pantalla_nacimiento.dart';
 import '../compras/pantalla_compras.dart';
 import '../compras/pantalla_recogida.dart';
 import '../escaneo/pantalla_escaneo.dart';
@@ -42,9 +43,14 @@ class _PantallaLugaresState extends State<PantallaLugares> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _revisarRespaldo());
   }
 
-  Future<void> _revisarRespaldo() async {
+  int _deuda = 0;
+
+  Future<void> _revisarRespaldo({bool abrir = true}) async {
     final deuda = await deudaDeRespaldo(widget.db);
-    if (deuda < umbralDeuda || !mounted) return;
+    if (!mounted) return;
+    setState(() => _deuda = deuda);
+
+    if (deuda < umbralDeuda || !abrir) return;
     await Navigator.push(
       context,
       MaterialPageRoute(
@@ -52,6 +58,19 @@ class _PantallaLugaresState extends State<PantallaLugares> {
         builder: (_) => PantallaRespaldo(db: widget.db),
       ),
     );
+    // Se pudo haber salido con "ahora no": la cuenta se refresca para que la
+    // franja siga a la vista.
+    if (mounted) await _revisarRespaldo(abrir: false);
+  }
+
+  Future<void> _abrirRespaldo() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PantallaRespaldo(db: widget.db, bloqueante: false),
+      ),
+    );
+    if (mounted) await _revisarRespaldo(abrir: false);
   }
 
   /// MANEJO: escanear para abrir la ficha y apuntar lo que se le hizo.
@@ -143,6 +162,21 @@ class _PantallaLugaresState extends State<PantallaLugares> {
     await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => PantallaVentas(db: widget.db)),
+    );
+  }
+
+  Future<void> _nacimiento() async {
+    final id = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(builder: (_) => PantallaNacimiento(db: widget.db)),
+    );
+    if (id == null || !mounted) return;
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PantallaFicha(db: widget.db, animalId: id),
+      ),
     );
   }
 
@@ -245,7 +279,7 @@ class _PantallaLugaresState extends State<PantallaLugares> {
                             builder: (_) => PantallaPasarLista(db: widget.db),
                           ),
                         ),
-                      'nacimiento' => _alta(),
+                      'nacimiento' => _nacimiento(),
                       _ => Navigator.push(
                           context,
                           MaterialPageRoute(
@@ -314,6 +348,14 @@ class _PantallaLugaresState extends State<PantallaLugares> {
               body: SafeArea(
                 child: Column(
                   children: [
+                    // La deuda de respaldo se queda a la vista. Se puede salir
+                    // de la pantalla que la pide, pero no desaparece hasta que
+                    // el archivo salga del celular.
+                    if (_deuda >= umbralDeuda)
+                      _FranjaRespaldo(
+                        deuda: _deuda,
+                        onTap: _abrirRespaldo,
+                      ),
                     Expanded(
                       child: ListView(
                         padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
@@ -570,6 +612,58 @@ class _DialogoLugarState extends State<_DialogoLugar> {
           child: const Text('Crear', style: TextStyle(fontSize: 18)),
         ),
       ],
+    );
+  }
+}
+
+/// La franja roja que recuerda que hay trabajo sin respaldar.
+///
+/// Aparece cuando se sale de la pantalla de respaldo con "ahora no". No
+/// estorba el paso —se puede seguir trabajando— pero no se quita hasta que el
+/// archivo salga del celular.
+class _FranjaRespaldo extends StatelessWidget {
+  const _FranjaRespaldo({required this.deuda, required this.onTap});
+
+  final int deuda;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Paleta.alerta,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          width: double.infinity,
+          constraints: const BoxConstraints(minHeight: 56),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(
+            children: [
+              const Icon(Icons.backup_outlined, color: Colors.white, size: 26),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  '$deuda registros sin respaldar',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const Text(
+                'RESPALDAR',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const Icon(Icons.chevron_right, color: Colors.white),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

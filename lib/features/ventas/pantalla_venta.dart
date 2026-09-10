@@ -5,6 +5,7 @@ import '../../comun/fechas.dart';
 import '../../comun/tema.dart';
 import '../../data/db/base_datos.dart';
 import '../../data/repos/ventas.dart';
+import '../animales/pantalla_ficha.dart';
 import '../escaneo/pantalla_escaneo.dart';
 import 'dialogo_peso.dart';
 import 'ficha_venta.dart';
@@ -225,6 +226,41 @@ class _PantallaVentaState extends State<PantallaVenta> {
     await _cargar();
   }
 
+  /// Reabrir una venta cerrada por error.
+  ///
+  /// Sin esto, cerrar de mas dejaba a los animales dados de baja para siempre.
+  Future<void> _reabrir() async {
+    final v = _venta;
+    if (v == null) return;
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Reabrir la venta'),
+        content: Text(
+          'Los ${v.cabezas} animales vuelven al hato y a sus potreros, y '
+          'puedes seguir agregando.\n\n'
+          'El historial de la venta se conserva.',
+          style: const TextStyle(fontSize: 17),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c, false),
+            child: const Text('Cancelar', style: TextStyle(fontSize: 18)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('Reabrir', style: TextStyle(fontSize: 18)),
+          ),
+        ],
+      ),
+    );
+    if (!(ok ?? false) || !mounted) return;
+
+    await widget.db.reabrirVenta(widget.ventaId);
+    await _cargar();
+  }
+
   Future<void> _cerrar() async {
     final v = _venta;
     if (v == null) return;
@@ -324,9 +360,30 @@ class _PantallaVentaState extends State<PantallaVenta> {
                         cerrada: v.cerrada,
                         onPrecio: () => _precioDeUno(v.renglones[i]),
                         onQuitar: () => _quitar(v.renglones[i]),
+                        // Ver el historial antes de ponerle precio: cuanto
+                        // costo, cuanto pesaba, que se le hizo.
+                        onFicha: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => PantallaFicha(
+                              db: widget.db,
+                              animalId: v.renglones[i].animal.id,
+                            ),
+                          ),
+                        ).then((_) => _cargar()),
                       ),
                     ),
             ),
+            if (v.cerrada)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                child: BotonGrande(
+                  etiqueta: 'REABRIR LA VENTA',
+                  icono: Icons.lock_open,
+                  contorno: true,
+                  onPressed: _reabrir,
+                ),
+              ),
             if (!v.cerrada)
               Padding(
                 padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
@@ -499,12 +556,14 @@ class _Renglon extends StatelessWidget {
     required this.cerrada,
     required this.onPrecio,
     required this.onQuitar,
+    required this.onFicha,
   });
 
   final RenglonVenta renglon;
   final bool cerrada;
   final VoidCallback onPrecio;
   final VoidCallback onQuitar;
+  final VoidCallback onFicha;
 
   @override
   Widget build(BuildContext context) {
@@ -516,7 +575,9 @@ class _Renglon extends StatelessWidget {
         children: [
           Expanded(
             flex: 5,
-            child: Column(
+            child: InkWell(
+              onTap: onFicha,
+              child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
@@ -539,6 +600,7 @@ class _Renglon extends StatelessWidget {
                   ),
                 ),
               ],
+              ),
             ),
           ),
           Expanded(

@@ -5,6 +5,7 @@ import '../../comun/fechas.dart';
 import '../../comun/tema.dart';
 import '../../data/db/base_datos.dart';
 import '../../data/repos/hato.dart';
+import '../../data/repos/historial.dart';
 import '../../domain/modelos/tipos.dart';
 import '../../domain/reglas/estado_animal.dart';
 import '../escaneo/pantalla_escaneo.dart';
@@ -352,29 +353,29 @@ class _Historial extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<List<Evento>>(
-      stream: db.verEventos(animalId),
+    return StreamBuilder<List<ApunteHistorial>>(
+      stream: RepoHistorial(db).verStream(animalId),
       builder: (context, snap) {
-        final eventos = snap.data ?? const <Evento>[];
-        if (eventos.isEmpty) {
+        final apuntes = snap.data ?? const <ApunteHistorial>[];
+        if (apuntes.isEmpty) {
           return const Text(
-            'Sin eventos todavía.',
+            'Sin apuntes todavía.',
             style: TextStyle(fontSize: 17, color: Paleta.textoSuave),
           );
         }
 
         return Column(
           children: [
-            for (final e in eventos)
+            for (final a in apuntes)
               Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
+                padding: const EdgeInsets.symmetric(vertical: 9),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     SizedBox(
-                      width: 110,
+                      width: 108,
                       child: Text(
-                        formateaAaaammdd(e.fechaEvento),
+                        a.fechaEnPalabras,
                         style: const TextStyle(
                           fontSize: 16,
                           color: Paleta.textoSuave,
@@ -382,12 +383,25 @@ class _Historial extends StatelessWidget {
                       ),
                     ),
                     Expanded(
-                      child: Text(
-                        _describe(e.tipo),
-                        style: const TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w600,
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            a.titulo,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          if (a.detalle != null)
+                            Text(
+                              a.detalle!,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                color: Paleta.textoSuave,
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                   ],
@@ -398,14 +412,4 @@ class _Historial extends StatelessWidget {
       },
     );
   }
-
-  String _describe(String tipo) => switch (tipo) {
-        'movimiento' => 'Movimiento',
-        'peso' => 'Pesaje',
-        'destete' => 'Destete',
-        'parto' => 'Parto',
-        'proposito' => 'Cambio de propósito',
-        'correccionCategoria' => 'Categoría corregida a mano',
-        _ => tipo,
-      };
 }

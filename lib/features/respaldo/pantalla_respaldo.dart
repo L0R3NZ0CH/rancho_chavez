@@ -307,6 +307,23 @@ class _PantallaRespaldoState extends State<PantallaRespaldo> {
                   icono: Icons.backup,
                   onPressed: _trabajando ? null : _respaldar,
                 ),
+                // Salida. Antes no la habia y era una trampa: si el celular no
+                // tiene con que compartir en ese momento, o simplemente hay
+                // prisa, quedarse encerrado en esta pantalla no protege nada.
+                //
+                // La deuda no se limpia: sigue contando y el inicio la deja a
+                // la vista con una franja roja hasta que se respalde.
+                if (widget.bloqueante) ...[
+                  const SizedBox(height: 10),
+                  BotonGrande(
+                    etiqueta: 'AHORA NO',
+                    contorno: true,
+                    color: Paleta.textoSuave,
+                    onPressed: _trabajando
+                        ? null
+                        : () => Navigator.pop(context, false),
+                  ),
+                ],
                 // Restaurar solo aparece cuando no hay trabajo sin respaldar.
                 // Ofrecerlo en la pantalla que bloquea por deuda seria invitar
                 // a pisar justo lo que todavia no se ha guardado.

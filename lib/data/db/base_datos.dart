@@ -455,6 +455,23 @@ class BaseDatos extends _$BaseDatos {
     return eventoId;
   }
 
+  Future<EventoPeso?> detallePeso(String eventoId) =>
+      (select(eventoPesos)..where((p) => p.eventoId.equals(eventoId)))
+          .getSingleOrNull();
+
+  Future<EventoMovimiento?> detalleMovimiento(String eventoId) =>
+      (select(eventoMovimientos)..where((m) => m.eventoId.equals(eventoId)))
+          .getSingleOrNull();
+
+  Future<EventoCorreccionCategoria?> detalleCategoria(String eventoId) =>
+      (select(eventoCorreccionCategorias)
+            ..where((c) => c.eventoId.equals(eventoId)))
+          .getSingleOrNull();
+
+  Future<EventoBaja?> detalleBaja(String eventoId) =>
+      (select(eventoBajas)..where((b) => b.eventoId.equals(eventoId)))
+          .getSingleOrNull();
+
   Future<EventoManejo?> detalleManejo(String eventoId) =>
       (select(eventoManejos)..where((m) => m.eventoId.equals(eventoId)))
           .getSingleOrNull();
@@ -1143,6 +1160,41 @@ class BaseDatos extends _$BaseDatos {
         LotesVentaCompanion(
           cerradoEn: Value(ahoraUtcMs()),
           modificadoEn: Value(ahoraUtcMs()),
+        ),
+      );
+    });
+  }
+
+  /// Reabre una venta que ya se habia cerrado.
+  ///
+  /// Cerrar por error pasa, y sin esto el animal quedaba dado de baja para
+  /// siempre. Se deshacen las bajas de esa venta —borrado logico, como todo— y
+  /// los animales vuelven al hato y a sus potreros.
+  Future<void> reabrirVenta(String ventaId) async {
+    final ahora = ahoraUtcMs();
+
+    await transaction(() async {
+      final bajas = await (select(eventos).join([
+        innerJoin(eventoBajas, eventoBajas.eventoId.equalsExp(eventos.id)),
+      ])
+            ..where(eventoBajas.loteVentaId.equals(ventaId) &
+                eventos.eliminadoEn.isNull()))
+          .get();
+
+      for (final fila in bajas) {
+        final evento = fila.readTable(eventos);
+        await (update(eventos)..where((e) => e.id.equals(evento.id))).write(
+          EventosCompanion(
+            eliminadoEn: Value(ahora),
+            modificadoEn: Value(ahora),
+          ),
+        );
+      }
+
+      await (update(lotesVenta)..where((l) => l.id.equals(ventaId))).write(
+        LotesVentaCompanion(
+          cerradoEn: const Value(null),
+          modificadoEn: Value(ahora),
         ),
       );
     });

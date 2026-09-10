@@ -36,6 +36,24 @@ class PantallaAnimalesDelLugar extends StatefulWidget {
 class _PantallaAnimalesDelLugarState extends State<PantallaAnimalesDelLugar> {
   String _filtro = '';
 
+  /// Los animales marcados para mover.
+  ///
+  /// Mover el potrero completo sirve cuando de verdad se mueve completo, pero
+  /// lo normal es sacar tres y dejar el resto. Sin poder elegir, la unica
+  /// salida era ir uno por uno a su ficha.
+  final _elegidos = <String>{};
+  bool _eligiendo = false;
+
+  void _alternar(String animalId) {
+    setState(() {
+      if (_elegidos.contains(animalId)) {
+        _elegidos.remove(animalId);
+      } else {
+        _elegidos.add(animalId);
+      }
+    });
+  }
+
   /// Mueve de un jalon a todos los animales de la lista.
   ///
   /// Es la operacion que ahorra horas: acomodar a mano veinte animales que se
@@ -85,7 +103,12 @@ class _PantallaAnimalesDelLugarState extends State<PantallaAnimalesDelLugar> {
         fecha: hoy,
       );
     }
-    if (mounted) Navigator.pop(context);
+    if (!mounted) return;
+
+    setState(() {
+      _elegidos.clear();
+      _eligiendo = false;
+    });
   }
 
   @override
@@ -111,9 +134,54 @@ class _PantallaAnimalesDelLugarState extends State<PantallaAnimalesDelLugar> {
                     (a.animal.apodo ?? '').toLowerCase().contains(_filtro))
                 .toList();
 
+        final elegidos =
+            lista.where((a) => _elegidos.contains(a.animal.id)).toList();
+
         return Scaffold(
           appBar: AppBar(
-            title: Text('${widget.titulo}  ·  ${delLugar.length}'),
+            title: Text(
+              _eligiendo
+                  ? '${_elegidos.length} elegidos'
+                  : '${widget.titulo}  ·  ${delLugar.length}',
+            ),
+            actions: [
+              if (delLugar.isNotEmpty && !widget.soloPendientes)
+                if (_eligiendo)
+                  TextButton(
+                    onPressed: () => setState(() {
+                      if (_elegidos.length == lista.length) {
+                        _elegidos.clear();
+                      } else {
+                        _elegidos
+                          ..clear()
+                          ..addAll(lista.map((a) => a.animal.id));
+                      }
+                    }),
+                    child: Text(
+                      _elegidos.length == lista.length
+                          ? 'Ninguno'
+                          : 'Todos',
+                      style: const TextStyle(fontSize: 18),
+                    ),
+                  )
+                else
+                  IconButton(
+                    tooltip: 'Elegir varios',
+                    iconSize: 30,
+                    icon: const Icon(Icons.checklist),
+                    onPressed: () => setState(() => _eligiendo = true),
+                  ),
+              if (_eligiendo)
+                IconButton(
+                  tooltip: 'Salir de elegir',
+                  iconSize: 30,
+                  icon: const Icon(Icons.close),
+                  onPressed: () => setState(() {
+                    _eligiendo = false;
+                    _elegidos.clear();
+                  }),
+                ),
+            ],
           ),
           body: SafeArea(
             child: Column(
@@ -159,15 +227,30 @@ class _PantallaAnimalesDelLugarState extends State<PantallaAnimalesDelLugar> {
                           itemBuilder: (context, i) => _Renglon(
                             datos: lista[i],
                             hoy: hoy,
-                            onTap: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => PantallaFicha(
-                                  db: widget.db,
-                                  animalId: lista[i].animal.id,
+                            eligiendo: _eligiendo,
+                            elegido:
+                                _elegidos.contains(lista[i].animal.id),
+                            onTap: () {
+                              if (_eligiendo) {
+                                _alternar(lista[i].animal.id);
+                                return;
+                              }
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => PantallaFicha(
+                                    db: widget.db,
+                                    animalId: lista[i].animal.id,
+                                  ),
                                 ),
-                              ),
-                            ),
+                              );
+                            },
+                            // Mantener apretado entra a elegir sin buscar el
+                            // boton de arriba.
+                            onLargo: () {
+                              setState(() => _eligiendo = true);
+                              _alternar(lista[i].animal.id);
+                            },
                           ),
                         ),
                 ),
@@ -175,12 +258,20 @@ class _PantallaAnimalesDelLugarState extends State<PantallaAnimalesDelLugar> {
                   Padding(
                     padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
                     child: BotonGrande(
-                      etiqueta: widget.ubicacionId == null
-                          ? 'ASIGNARLES UN LUGAR'
-                          : 'MOVERLOS A OTRO LUGAR',
+                      etiqueta: _eligiendo
+                          ? (elegidos.isEmpty
+                              ? 'ELIGE CUÁLES MOVER'
+                              : 'MOVER ${elegidos.length}')
+                          : (widget.ubicacionId == null
+                              ? 'ASIGNARLES UN LUGAR A TODOS'
+                              : 'MOVERLOS A TODOS'),
                       icono: Icons.swap_horiz,
-                      contorno: widget.ubicacionId != null,
-                      onPressed: () => _moverTodos(delLugar),
+                      contorno: widget.ubicacionId != null && !_eligiendo,
+                      onPressed: _eligiendo
+                          ? (elegidos.isEmpty
+                              ? null
+                              : () => _moverTodos(elegidos))
+                          : () => _moverTodos(delLugar),
                     ),
                   ),
               ],
@@ -197,11 +288,17 @@ class _Renglon extends StatelessWidget {
     required this.datos,
     required this.hoy,
     required this.onTap,
+    required this.onLargo,
+    required this.eligiendo,
+    required this.elegido,
   });
 
   final AnimalEnLista datos;
   final int hoy;
   final VoidCallback onTap;
+  final VoidCallback onLargo;
+  final bool eligiendo;
+  final bool elegido;
 
   @override
   Widget build(BuildContext context) {
@@ -209,7 +306,16 @@ class _Renglon extends StatelessWidget {
 
     return ListTile(
       onTap: onTap,
-      contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+      onLongPress: onLargo,
+      selected: elegido,
+      selectedTileColor: const Color(0xFFE8F3EC),
+      leading: eligiendo
+          ? Checkbox(value: elegido, onChanged: (_) => onTap())
+          : null,
+      contentPadding: EdgeInsets.symmetric(
+        vertical: 10,
+        horizontal: eligiendo ? 0 : 4,
+      ),
       title: Row(
         children: [
           Flexible(
@@ -270,7 +376,8 @@ class _Renglon extends StatelessWidget {
           ],
         ),
       ),
-      trailing: const Icon(Icons.chevron_right, size: 30),
+      trailing:
+          eligiendo ? null : const Icon(Icons.chevron_right, size: 30),
     );
   }
 }

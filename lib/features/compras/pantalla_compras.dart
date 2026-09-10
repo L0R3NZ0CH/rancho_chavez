@@ -4,8 +4,7 @@ import '../../comun/fechas.dart';
 import '../../comun/confirmar.dart';
 import '../../comun/tema.dart';
 import '../../data/db/base_datos.dart';
-import 'pantalla_lote.dart';
-import 'pantalla_nueva_compra.dart';
+import 'pantalla_recogida.dart';
 
 /// La lista de compras.
 class PantallaCompras extends StatelessWidget {
@@ -13,19 +12,18 @@ class PantallaCompras extends StatelessWidget {
 
   final BaseDatos db;
 
+  /// Una compra nueva no pide nada antes: se abre y se empieza a pesar.
   Future<void> _nueva(BuildContext context) async {
-    final id = await Navigator.push<String>(
-      context,
-      MaterialPageRoute(builder: (_) => PantallaNuevaCompra(db: db)),
+    final id = await db.crearLoteCompra(
+      fecha: hoyAaaammdd(),
+      vendedor: '',
+      formaCalculo: 'porKilo',
     );
-    if (id == null || !context.mounted) return;
-
-    // Se entra derecho al lote: lo siguiente que quiere hacer el usuario es
-    // empezar a escanear animales.
+    if (!context.mounted) return;
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => PantallaLoteCompra(db: db, loteId: id),
+        builder: (_) => PantallaRecogida(db: db, compraId: id),
       ),
     );
   }
@@ -88,9 +86,9 @@ class PantallaCompras extends StatelessWidget {
                             onTap: () => Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (_) => PantallaLoteCompra(
+                                builder: (_) => PantallaRecogida(
                                   db: db,
-                                  loteId: lotes[i].id,
+                                  compraId: lotes[i].id,
                                 ),
                               ),
                             ),
@@ -131,8 +129,12 @@ class _Renglon extends StatelessWidget {
       onTap: onTap,
       contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
       title: Text(
-        lote.vendedor,
-        style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+        lote.vendedor.isEmpty ? 'Sin vendedor' : lote.vendedor,
+        style: TextStyle(
+          fontSize: 22,
+          fontWeight: FontWeight.w800,
+          color: lote.vendedor.isEmpty ? Paleta.textoSuave : Paleta.texto,
+        ),
       ),
       subtitle: Padding(
         padding: const EdgeInsets.only(top: 4),
