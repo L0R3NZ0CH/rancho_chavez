@@ -16,7 +16,8 @@ class AnimalEnLista {
     required this.animal,
     required this.numeroArete,
     required this.categoria,
-    required this.categoriaHaceUnMes,
+    required this.categoriaDesde,
+    required this.avisoCategoria,
     required this.ubicacionId,
     required this.ubicacionNombre,
     required this.enUbicacionDesde,
@@ -34,20 +35,26 @@ class AnimalEnLista {
 
   final Categoria categoria;
 
-  /// La categoria que tenia hace un mes.
+  /// Desde cuando trae esa categoria, en AAAAMMDD.
   ///
-  /// Sirve para avisar en el inicio cuando un animal cambio solo, sin guardar
-  /// ninguna bandera: se calcula la categoria dos veces, con dos fechas, y se
-  /// comparan. La regla 5 sigue intacta.
-  final Categoria categoriaHaceUnMes;
+  /// Nulo cuando la categoria salio del calculo y no de una captura.
+  final int? categoriaDesde;
 
-  /// Cambio de categoria en el ultimo mes por puro paso del tiempo.
-  bool get cambioReciente => categoria != categoriaHaceUnMes;
+  /// Cuando el animal lleva demasiado tiempo en la misma categoria.
+  ///
+  /// La app avisa; no cambia nada sola, porque el juicio de que un becerro ya
+  /// es torete es del dueno, no de una formula.
+  final ({int meses, int limite})? avisoCategoria;
 
-  /// Verdadero cuando la categoria la puso el dueno a mano y no el calculo.
+  /// Verdadero cuando la categoria se capturo, en vez de deducirse de la fecha
+  /// de nacimiento.
   final bool categoriaCorregida;
 
-  /// AAAAMMDD en que le toca cambiar de categoria por edad, si aplica.
+  /// AAAAMMDD en que le toca cambiar de categoria por edad.
+  ///
+  /// Solo aplica a los **nacidos en el rancho**, que son los unicos con fecha
+  /// de nacimiento real. A un animal comprado no se le puede sugerir nada,
+  /// porque no se sabe cuando nacio.
   final int? proximoCambioCategoria;
 
   final String? ubicacionId;
@@ -228,28 +235,46 @@ class RepoHato {
 
     final donde = ubicacionActual(movimientos);
     final peso = ultimoPeso(pesajes);
-    final correccion = masReciente(correcciones)?.categoria;
+
+    // La categoria capturada manda. Es un juicio de quien vio al animal, igual
+    // que el precio, y ninguna formula le gana a eso.
+    final capturada = masReciente(correcciones);
+
+    final nacidoAqui = animal.origen == 'nacido';
 
     final datos = DatosCategoria(
       sexo: Sexo.desdeTexto(animal.sexo),
       fechaNacimiento: animal.fechaNacimiento,
       tieneDestete: tieneDestete,
       tieneParto: tieneParto,
-      correccionManual: correccion,
+      correccionManual: capturada?.categoria,
     );
+
+    // Sin captura, el calculo solo sirve para los nacidos aqui: son los unicos
+    // de los que se conoce la fecha de nacimiento de verdad. A un comprado no
+    // se le inventa una categoria.
+    final categoria = capturada?.categoria ??
+        (nacidoAqui
+            ? calcularCategoria(datos, hoy: hoy, umbrales: umbrales)
+            : Categoria.sinClasificar);
 
     return AnimalEnLista(
       animal: animal,
       numeroArete: numeroArete,
-      categoria: calcularCategoria(datos, hoy: hoy, umbrales: umbrales),
-      categoriaHaceUnMes: calcularCategoria(
-        datos,
-        hoy: sumaMeses(hoy, -1),
+      categoria: categoria,
+      categoriaDesde: capturada?.fechaEvento,
+      categoriaCorregida: capturada != null,
+      avisoCategoria: avisoDeCategoria(
+        categoria: categoria,
+        desde: capturada?.fechaEvento,
+        hoy: hoy,
         umbrales: umbrales,
       ),
-      categoriaCorregida: correccion != null,
-      proximoCambioCategoria:
-          proximoCambioDeCategoria(datos, hoy: hoy, umbrales: umbrales),
+      // Solo los nacidos aqui tienen fecha de nacimiento real, asi que solo a
+      // ellos se les puede sugerir el siguiente cambio.
+      proximoCambioCategoria: nacidoAqui
+          ? proximoCambioDeCategoria(datos, hoy: hoy, umbrales: umbrales)
+          : null,
       ubicacionId: donde?.ubicacionId,
       ubicacionNombre:
           donde == null ? null : nombreUbicacion[donde.ubicacionId],

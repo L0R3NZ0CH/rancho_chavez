@@ -9,7 +9,9 @@ import '../../data/respaldo.dart';
 import '../animales/pantalla_alta.dart';
 import '../animales/pantalla_ficha.dart';
 import '../compras/pantalla_compras.dart';
+import '../compras/pantalla_recogida.dart';
 import '../escaneo/pantalla_escaneo.dart';
+import '../manejo/pantalla_pasar_lista.dart';
 import '../respaldo/pantalla_respaldo.dart';
 import '../ventas/pantalla_ventas.dart';
 import 'pantalla_animales_del_lugar.dart';
@@ -52,6 +54,8 @@ class _PantallaLugaresState extends State<PantallaLugares> {
     );
   }
 
+  /// MANEJO: escanear para abrir la ficha y apuntar lo que se le hizo.
+  ///
   /// Escanear busca al animal en todo el rancho, sin importar donde este.
   Future<void> _escanear() async {
     final numero = await Navigator.push<String>(
@@ -115,6 +119,24 @@ class _PantallaLugaresState extends State<PantallaLugares> {
       ),
     );
     if (mounted) await _revisarRespaldo();
+  }
+
+  /// Una compra nueva: se abre y se empieza a pesar de inmediato.
+  ///
+  /// No pide nada antes. El vendedor esta esperando su dinero.
+  Future<void> _compra() async {
+    final id = await widget.db.crearLoteCompra(
+      fecha: hoyAaaammdd(),
+      vendedor: '',
+      formaCalculo: 'porKilo',
+    );
+    if (!mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PantallaRecogida(db: widget.db, compraId: id),
+      ),
+    );
   }
 
   Future<void> _venta() async {
@@ -199,15 +221,8 @@ class _PantallaLugaresState extends State<PantallaLugares> {
                       : '${hato.length} ${hato.length == 1 ? 'animal' : 'animales'}',
                 ),
                 actions: [
-                  // Vender es de diario y va a la vista. Lo demas vive en el
-                  // menu: la barra de arriba se llena rapido y lo que se usa
-                  // todos los dias es escanear.
-                  IconButton(
-                    tooltip: 'Venta',
-                    iconSize: 32,
-                    icon: const Icon(Icons.sell_outlined),
-                    onPressed: _venta,
-                  ),
+                  // Comprar, vender y manejar bajaron a los tres botones
+                  // grandes. Aqui arriba solo queda lo que no se usa a diario.
                   PopupMenuButton<String>(
                     tooltip: 'Más',
                     iconSize: 30,
@@ -218,6 +233,19 @@ class _PantallaLugaresState extends State<PantallaLugares> {
                             builder: (_) => PantallaCompras(db: widget.db),
                           ),
                         ),
+                      'ventas' => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => PantallaVentas(db: widget.db),
+                          ),
+                        ),
+                      'lista' => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => PantallaPasarLista(db: widget.db),
+                          ),
+                        ),
+                      'nacimiento' => _alta(),
                       _ => Navigator.push(
                           context,
                           MaterialPageRoute(
@@ -230,11 +258,41 @@ class _PantallaLugaresState extends State<PantallaLugares> {
                     },
                     itemBuilder: (_) => const [
                       PopupMenuItem(
+                        value: 'nacimiento',
+                        child: ListTile(
+                          leading: Icon(Icons.child_care_outlined),
+                          title: Text(
+                            'Nació en el rancho',
+                            style: TextStyle(fontSize: 19),
+                          ),
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'lista',
+                        child: ListTile(
+                          leading: Icon(Icons.fact_check_outlined),
+                          title: Text(
+                            'Pasar lista',
+                            style: TextStyle(fontSize: 19),
+                          ),
+                        ),
+                      ),
+                      PopupMenuItem(
                         value: 'compras',
                         child: ListTile(
                           leading: Icon(Icons.local_shipping_outlined),
                           title: Text(
                             'Compras',
+                            style: TextStyle(fontSize: 19),
+                          ),
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'ventas',
+                        child: ListTile(
+                          leading: Icon(Icons.receipt_long_outlined),
+                          title: Text(
+                            'Ventas',
                             style: TextStyle(fontSize: 19),
                           ),
                         ),
@@ -307,26 +365,36 @@ class _PantallaLugaresState extends State<PantallaLugares> {
                         ],
                       ),
                     ),
-                    // El boton de escanear va fijo abajo y siempre visible.
+                    // Los tres van fijos abajo y siempre visibles: son las
+                    // tres cosas que se hacen en el rancho. Cualquiera de los
+                    // tres abre camara, asi que se distinguen por lo que vas a
+                    // hacer con lo que escanees, no por el escaneo.
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                      padding: const EdgeInsets.fromLTRB(10, 8, 10, 12),
                       child: Row(
                         children: [
                           Expanded(
-                            flex: 2,
                             child: BotonGrande(
-                              etiqueta: 'ESCANEAR',
-                              icono: Icons.qr_code_scanner,
-                              onPressed: _escanear,
+                              etiqueta: 'COMPRA',
+                              icono: Icons.local_shipping_outlined,
+                              onPressed: _compra,
                             ),
                           ),
-                          const SizedBox(width: 10),
+                          const SizedBox(width: 8),
                           Expanded(
                             child: BotonGrande(
-                              etiqueta: 'NUEVO',
-                              icono: Icons.add,
+                              etiqueta: 'VENTA',
+                              icono: Icons.sell_outlined,
+                              onPressed: _venta,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: BotonGrande(
+                              etiqueta: 'MANEJO',
+                              icono: Icons.healing_outlined,
                               contorno: true,
-                              onPressed: () => _alta(),
+                              onPressed: _escanear,
                             ),
                           ),
                         ],

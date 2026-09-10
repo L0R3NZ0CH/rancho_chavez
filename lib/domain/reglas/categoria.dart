@@ -170,3 +170,42 @@ int diasDelMes(int anio, int mes) {
 
 bool esBisiesto(int anio) =>
     (anio % 4 == 0 && anio % 100 != 0) || anio % 400 == 0;
+
+/// Cuando avisar que un animal lleva demasiado tiempo en la misma categoria.
+///
+/// Un becerro no se queda becerro para siempre. Como la categoria se captura y
+/// nadie la va a andar actualizando, la app avisa —no cambia nada sola, porque
+/// el juicio es del dueno.
+///
+/// Los meses son los mismos umbrales configurables de la categoria: si un
+/// animal lleva mas de [UmbralesCategoria.mesesDestete] como becerro o becerra,
+/// o mas de [UmbralesCategoria.mesesAdulto] como torete o vaquilla, ya se
+/// quedo corto el nombre.
+int? mesesLimitePara(Categoria categoria, UmbralesCategoria umbrales) =>
+    switch (categoria) {
+      Categoria.becerro || Categoria.becerra => umbrales.mesesDestete,
+      Categoria.torete || Categoria.vaquilla => umbrales.mesesAdulto,
+      // Vaca y toro ya son finales; sin clasificar no tiene de que avisar.
+      _ => null,
+    };
+
+/// Cuantos meses lleva el animal en su categoria, y si ya es demasiado.
+///
+/// [desde] es la fecha en que se le puso esa categoria, en AAAAMMDD. Devuelve
+/// null cuando no hay nada que avisar.
+({int meses, int limite})? avisoDeCategoria({
+  required Categoria categoria,
+  required int? desde,
+  required int hoy,
+  UmbralesCategoria umbrales = const UmbralesCategoria(),
+}) {
+  if (desde == null) return null;
+
+  final limite = mesesLimitePara(categoria, umbrales);
+  if (limite == null) return null;
+
+  final meses = edadEnMeses(desde, hoy);
+  if (meses == null || meses < limite) return null;
+
+  return (meses: meses, limite: limite);
+}

@@ -3,6 +3,7 @@ import 'package:drift_flutter/drift_flutter.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../comun/fechas.dart';
+import '../../domain/modelos/tipos.dart';
 import 'rutas.dart';
 import 'tablas.dart';
 
@@ -17,7 +18,8 @@ const _uuid = Uuid();
 /// Version 4: ventas y bajas. Solo agrega tablas.
 /// Version 5: repara la tabla de compras en los celulares que alcanzaron a
 ///            instalar la primera forma de la version 3.
-const versionEsquema = 5;
+/// Version 6: apuntes de manejo. Solo agrega una tabla.
+const versionEsquema = 6;
 
 @DriftDatabase(
   tables: [
@@ -36,6 +38,7 @@ const versionEsquema = 5;
     LotesVenta,
     LoteVentaAnimales,
     EventoBajas,
+    EventoManejos,
   ],
 )
 class BaseDatos extends _$BaseDatos {
@@ -90,6 +93,10 @@ class BaseDatos extends _$BaseDatos {
 
           if (desde <= 4) {
             await _repararComprasViejas(m);
+          }
+
+          if (desde <= 5) {
+            await m.createTable(eventoManejos);
           }
 
           if (hasta > versionEsquema) {
@@ -221,6 +228,7 @@ class BaseDatos extends _$BaseDatos {
     required String origen,
     required String proposito,
     required int fecha,
+    String? categoria,
     String? ubicacionId,
     String? numeroArete,
     String tipoArete = 'siniiga',
@@ -275,6 +283,14 @@ class BaseDatos extends _$BaseDatos {
         proposito: proposito,
         fecha: fecha,
       );
+
+      if (categoria != null) {
+        await asignarCategoria(
+          animalId: s.id,
+          categoria: categoria,
+          fecha: fecha,
+        );
+      }
 
       return s.id;
     });
@@ -412,6 +428,37 @@ class BaseDatos extends _$BaseDatos {
     return eventoId;
   }
 
+  /// Apunta lo que se le hizo al animal.
+  ///
+  /// Es un apunte, no una edicion: lo de antes no se toca. Si hoy lo banaste y
+  /// el mes pasado tambien, quedan los dos.
+  Future<String> registrarManejo({
+    required String animalId,
+    required int fecha,
+    bool banado = false,
+    bool desparasitado = false,
+    String? otro,
+  }) async {
+    final eventoId = await _evento(
+      animalId: animalId,
+      tipo: 'manejo',
+      fecha: fecha,
+    );
+    await into(eventoManejos).insert(
+      EventoManejosCompanion.insert(
+        eventoId: eventoId,
+        banado: Value(banado),
+        desparasitado: Value(desparasitado),
+        otro: Value(otro),
+      ),
+    );
+    return eventoId;
+  }
+
+  Future<EventoManejo?> detalleManejo(String eventoId) =>
+      (select(eventoManejos)..where((m) => m.eventoId.equals(eventoId)))
+          .getSingleOrNull();
+
   /// Destete y parto no tienen detalle: su unico dato es la fecha.
   Future<String> registrarDestete({
     required String animalId,
@@ -426,7 +473,17 @@ class BaseDatos extends _$BaseDatos {
   }) =>
       _evento(animalId: animalId, tipo: 'parto', fecha: fecha, notas: notas);
 
-  Future<String> corregirCategoria({
+  /// Le pone categoria al animal.
+  ///
+  /// Se guarda como evento con su fecha, no como una casilla que se pisa. Asi
+  /// queda el rastro —fue becerro desde tal dia, pasó a torete tal otro— y la
+  /// app puede avisar cuando un animal lleva demasiado tiempo en la misma.
+  ///
+  /// La tabla se sigue llamando `evento_correccion_categorias` porque asi nacio,
+  /// cuando la categoria se calculaba y esto era la excepcion. Hoy es la via
+  /// normal. Renombrarla costaria una migracion sobre datos reales y no
+  /// arreglaria nada que se vea.
+  Future<String> asignarCategoria({
     required String animalId,
     required String categoria,
     required int fecha,
@@ -468,6 +525,35 @@ class BaseDatos extends _$BaseDatos {
 
     final fila = await consulta.getSingleOrNull();
     return fila?.readTable(animales);
+  }
+
+  /// La categoria que trae puesta un animal, o sin clasificar.
+  Future<Categoria> categoriaDe(String animalId) async {
+    final fila = await (select(eventos).join([
+      innerJoin(
+        eventoCorreccionCategorias,
+        eventoCorreccionCategorias.eventoId.equalsExp(eventos.id),
+      ),
+    ])
+          ..where(eventos.animalId.equals(animalId) &
+              eventos.eliminadoEn.isNull())
+          ..orderBy([
+            OrderingTerm(
+              expression: eventos.fechaEvento,
+              mode: OrderingMode.desc,
+            ),
+            OrderingTerm(
+              expression: eventos.creadoEn,
+              mode: OrderingMode.desc,
+            ),
+          ])
+          ..limit(1))
+        .getSingleOrNull();
+
+    if (fila == null) return Categoria.sinClasificar;
+    return Categoria.desdeTexto(
+      fila.readTable(eventoCorreccionCategorias).categoria,
+    );
   }
 
   Future<Animal?> animal(String id) =>
@@ -629,6 +715,44 @@ class BaseDatos extends _$BaseDatos {
       formaCalculo: formaCalculo,
       precioPorKilo: precioPorKilo,
       lugar: lugar,
+    );
+  }
+
+  Future<void> actualizarLugarCompra({
+    required String loteCompraId,
+    required String? lugar,
+  }) async {
+    await (update(lotesCompra)..where((l) => l.id.equals(loteCompraId))).write(
+      LotesCompraCompanion(
+        lugar: Value(lugar),
+        modificadoEn: Value(ahoraUtcMs()),
+      ),
+    );
+  }
+
+  /// Cambia el trato de un animal, con valores planos.
+  ///
+  /// Los nulos aqui quieren decir "no lo toques", no "ponlo en nulo". Es la
+  /// version que usan las pantallas, para que no tengan que saber de drift.
+  Future<void> ajustarTrato({
+    required String loteCompraId,
+    required String animalId,
+    String? vendedor,
+    String? formaCalculo,
+    double? precioPorKilo,
+    double? precioPorCabeza,
+  }) async {
+    await ajustarTratoDelAnimal(
+      loteCompraId: loteCompraId,
+      animalId: animalId,
+      vendedor: vendedor == null ? const Value.absent() : Value(vendedor),
+      formaCalculo:
+          formaCalculo == null ? const Value.absent() : Value(formaCalculo),
+      precioPorKilo:
+          precioPorKilo == null ? const Value.absent() : Value(precioPorKilo),
+      precioPorCabeza: precioPorCabeza == null
+          ? const Value.absent()
+          : Value(precioPorCabeza),
     );
   }
 
@@ -995,13 +1119,11 @@ class BaseDatos extends _$BaseDatos {
 
   /// Cierra la venta: da de baja a todos sus animales.
   ///
-  /// Aqui es donde ira el candado del **tiempo de retiro**. La especificacion es
-  /// tajante: si un animal trae retiro activo, la venta se bloquea y esa
-  /// validacion no es opcional. Todavia no se puede consultar nada porque los
-  /// tratamientos no existen (son otra fase), asi que por ahora no bloquea
-  /// nada y el retiro lo cuida la persona, no la app. El dia que existan los
-  /// tratamientos, la comprobacion va exactamente aqui, antes del primer
-  /// registro de baja.
+  /// **No hay candado de tiempo de retiro, y es a proposito.** La
+  /// especificacion original lo exigia, pero el dueno lo quito despues de cinco
+  /// anios de operacion: vende animales vivos que el comprador se lleva a
+  /// engordar meses, asi que cualquier retiro se cumple solo. La razon completa
+  /// esta en la seccion 8 de docs/proyecto-app-ganado.md.
   Future<void> cerrarVenta(String ventaId) async {
     final venta = await this.venta(ventaId);
     if (venta == null) return;

@@ -1,3 +1,4 @@
+import '../../domain/modelos/tipos.dart';
 import '../../domain/reglas/costo_compra.dart';
 import '../db/base_datos.dart';
 
@@ -13,10 +14,14 @@ class RenglonCompra {
     required this.pesoCompraKg,
     required this.costo,
     required this.tratoPropio,
+    required this.categoria,
   });
 
   final Animal animal;
   final String? numeroArete;
+
+  /// La categoria que se le puso al capturarlo.
+  final Categoria categoria;
 
   /// Ya resuelto: el propio del animal, o el heredado de la compra.
   final String vendedor;
@@ -93,6 +98,7 @@ class RepoCompras {
         RenglonCompra(
           animal: animal,
           numeroArete: (await db.areteVigente(animal.id))?.numero,
+          categoria: await db.categoriaDe(animal.id),
           vendedor: vendedor,
           forma: forma,
           precioPorKilo: precioKilo,

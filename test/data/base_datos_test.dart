@@ -231,7 +231,7 @@ void main() {
 
     test('la correccion de categoria queda con fecha y motivo', () async {
       final id = await unAnimal();
-      await db.corregirCategoria(
+      await db.asignarCategoria(
         animalId: id,
         categoria: 'toro',
         fecha: 20260908,

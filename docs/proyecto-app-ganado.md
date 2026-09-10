@@ -1,6 +1,12 @@
 # Aplicación de control de ganado — documento del proyecto
 
-Versión 2 del documento · Septiembre 2026
+Versión 3 del documento · Septiembre 2026
+
+> **Correcciones de la versión 3.** Se **eliminó el tiempo de retiro** por
+> decisión del dueño, con la razón escrita abajo. **La categoría pasa a
+> capturarse en vez de calcularse**, que es un cambio de fondo respecto a la
+> versión 1. Y se reordenó la app alrededor de tres acciones: comprar, vender y
+> manejar.
 
 > **Correcciones de la versión 2.** Se corrigió la sección 1, que decía "arete electrónico" cuando
 > la identificación es **óptica, por código de barras** (manda la sección 3). Se eliminó la categoría
@@ -167,10 +173,40 @@ Como cada movimiento queda como evento con fecha, se obtiene gratis: cuántos an
 
 ### Categoría
 
-**La calcula el sistema, no la captura nadie.** De sexo, fecha de nacimiento, destete y parto salen:
-becerro, becerra, destete, vaquilla, vaca, toro.
+**Se captura, no se calcula.** Esto invierte lo que decía la versión 1 de este
+documento, y la razón la puso el dueño: **la categoría es un juicio de quien
+está viendo al animal**, exactamente igual que el precio. Un animal es becerro
+porque lo ves y es becerro, no porque una fórmula lo deduzca.
 
-Si se deja manual, en seis meses hay "becerros" de tres años porque nadie los actualizó.
+El intento de calcularla fracasó por algo simple: **casi nunca se conoce la
+fecha de nacimiento.** Los animales se compran en un punto de reunión, sin
+papeles. En la práctica, todos salían "sin clasificar", y un renglón que dice
+"no sé" debajo de cada animal solo estorba para leer el peso.
+
+Y la categoría **sí es indispensable**, porque de ella depende el precio: un
+becerro, una becerra y una vaca no valen lo mismo el kilo, aunque vengan del
+mismo vendedor el mismo día.
+
+**Son seis:** becerro, becerra, vaquilla, vaca, torete y toro. Las dos primeras
+van a la vista al capturar y las otras cuatro detrás de un `+ otras`, porque
+con guantes seis botones son seis oportunidades de picar el equivocado.
+
+**El sexo sale de la categoría** y no se pregunta aparte. Un toque menos por
+animal cuando hay un vendedor esperando su dinero, y además no se puede
+capturar mal.
+
+### Lo que sigue en pie del riesgo original
+
+La versión 1 advertía: *"si se deja manual, en seis meses hay becerros de tres
+años porque nadie los actualizó"*. Ese riesgo es real y no desaparece.
+
+La respuesta **no** es que el sistema cambie la categoría solo, porque el juicio
+es del dueño. La respuesta es que la categoría se guarda **con su fecha** y la
+app avisa: *"este animal lleva dos años registrado como becerro"*. Avisa; no
+decide.
+
+Para los animales **nacidos en el rancho** sí se conoce la fecha real, así que
+ahí el cálculo se conserva y sirve como sugerencia.
 
 **Novillo se elimina.** En este rancho no se castra, así que la categoría no aplica y tampoco existe el
 dato que la sustentaría.
@@ -208,12 +244,11 @@ Todo lo que le pasa a un animal es un evento con fecha. Tipos:
 
 - **Movimiento**: de qué ubicación a cuál
 - **Peso**: kilos, y si fue al nacer, al destete o de rutina
-- **Tratamiento**: producto, dosis, motivo, y **fecha en que termina el tiempo de retiro**.
-  Los días de retiro se leen de la etiqueta del producto y se capturan tal cual en el catálogo.
-  A eso se le suma un **margen de seguridad configurable, de dos días por omisión**, porque el costo
-  de equivocarse por abajo es un decomiso. Solo se controla **retiro en carne**: el rancho no vende leche.
-- **Vacuna**: no es un evento aparte. Las vacunas son un tipo de producto dentro del mismo catálogo
-  de tratamientos, con sus propios días de retiro.
+- **Manejo**: lo que se le hizo al animal ese día. Peso, bañado, desparasitado,
+  o cualquier otra cosa en palabras del rancho. **Es un apunte, no una edición**:
+  lo de antes no se toca, se apila. Si hoy se bañó y el mes pasado también,
+  quedan los dos.
+- **Categoría**: la que se le puso al animal, con su fecha.
 - **Destete**: la fecha en que se destetó. Alimenta el cálculo de categoría.
 - **Parto**: solo la fecha. Es el mínimo que la versión 1 necesita para distinguir vaca de vaquilla.
   El resto de la reproducción (servicio, inseminación, diagnóstico de gestación) sigue en la versión 2.
@@ -233,7 +268,7 @@ Todo lo que le pasa a un animal es un evento con fecha. Tipos:
 - Fecha, comprador, destino
 - Precio total y forma de cálculo: por cabeza o por kilo
 - Animales que incluye
-- **Validación obligatoria**: la aplicación bloquea la venta si algún animal todavía tiene tiempo de retiro activo
+- **Sin validación de tiempo de retiro.** Ver la sección 8.
 - Documentos
 
 ### Gastos de alimento
@@ -322,7 +357,7 @@ Respaldo, restauración, catálogos de productos y proveedores, datos del rancho
 - Apartados manuales y automáticos
 - Registro de compra con costo
 - Registro de venta con precio y diferencia compra-venta
-- Tratamientos individuales y por lote, con tiempo de retiro y bloqueo de venta
+- Manejo: peso, bañado, desparasitado y otros apuntes, cada uno con su fecha
 - Gastos de alimento
 - Inventario del hato
 - Respaldo y restauración
@@ -350,6 +385,27 @@ Respaldo, restauración, catálogos de productos y proveedores, datos del rancho
 **La lectura del código de barras.** Es el riesgo técnico principal. Hay que probar la cámara del celular contra aretes reales del rancho, incluyendo los sucios y viejos, antes de programar nada. Si la tasa de lectura es mala, se compra un escáner 2D. Y en cualquier caso, la captura manual debe estar siempre disponible.
 
 **Adopción.** Si capturar un animal toma más de quince segundos, la aplicación se abandona y se vuelve al cuaderno. Cada pantalla debe medirse contra eso.
+
+**Quien espera no es el usuario, es el vendedor.** En una recogida, el señor que
+vende quiere que le pesen y le paguen. Todo lo que la aplicación pida capturar
+en ese momento se lo está quitando a él. Por eso la captura se parte en dos: en
+el punto de recogida solo **peso y categoría**, y el precio, el vendedor y lo
+demás se llenan después, ya en la casa.
+
+### El tiempo de retiro se eliminó
+
+La versión 1 lo exigía y decía que la validación no era opcional. **Se quitó**,
+y esta es la razón, para que nadie lo vuelva a meter creyendo que se olvidó:
+
+El rancho **vende animales vivos**, no lleva canales al rastro. Lo que más
+vende son becerros que el comprador se lleva a engordar durante meses, así que
+cualquier tiempo de retiro se cumple solo, sin que nadie tenga que acordarse.
+El único caso donde mordería es vender un adulto que va derecho al sacrificio
+pocos días después de un baño, y el dueño —cinco años de operación— lo
+considera lo bastante raro como para no cargar con la complejidad.
+
+Lo que se pierde: la aplicación no avisa ni bloquea nada por residuos. **Ese
+control queda en manos de la persona.**
 
 **Condiciones de campo.** Se usa con guantes, con una mano, bajo el sol y sin señal. Botones grandes, alto contraste, todo funcionando sin internet.
 

@@ -361,3 +361,26 @@ class EventoBajas extends Table {
   @override
   Set<Column> get primaryKey => {eventoId};
 }
+
+
+/// Un apunte de manejo: lo que se le hizo al animal ese dia.
+///
+/// Bano, desparasitada, o lo que sea. **Nunca sobrescribe nada**: cada manejo
+/// es un apunte con su fecha y se apila sobre los anteriores, que es como se
+/// lleva un control de verdad.
+///
+/// El peso no vive aqui aunque se capture en la misma pantalla: es un evento de
+/// peso, porque es una medicion y le toca la regla 4.
+@DataClassName('EventoManejo')
+class EventoManejos extends Table {
+  TextColumn get eventoId => text().references(Eventos, #id)();
+  BoolColumn get banado => boolean().withDefault(const Constant(false))();
+  BoolColumn get desparasitado =>
+      boolean().withDefault(const Constant(false))();
+
+  /// Cualquier otra cosa que se le haya hecho, en palabras del rancho.
+  TextColumn get otro => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {eventoId};
+}

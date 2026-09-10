@@ -8,6 +8,7 @@ import '../../data/repos/hato.dart';
 import '../../domain/modelos/tipos.dart';
 import '../../domain/reglas/estado_animal.dart';
 import '../escaneo/pantalla_escaneo.dart';
+import '../manejo/dialogo_manejo.dart';
 
 /// La ficha de un animal.
 ///
@@ -287,64 +288,60 @@ class _Acciones extends StatelessWidget {
     return Column(
       children: [
         BotonGrande(
-          etiqueta: 'PESAR',
-          icono: Icons.monitor_weight_outlined,
-          onPressed: () => _pesar(context),
-        ),
-        const SizedBox(height: 10),
-        BotonGrande(
-          etiqueta: 'MOVER DE POTRERO',
-          icono: Icons.swap_horiz,
-          contorno: true,
-          onPressed: () => _mover(context),
+          etiqueta: 'REGISTRAR MANEJO',
+          icono: Icons.edit_note,
+          onPressed: () => _manejo(context),
         ),
       ],
     );
   }
 
-  Future<void> _pesar(BuildContext context) async {
-    final kilos = await showDialog<double>(
-      context: context,
-      builder: (_) => const _DialogoPeso(),
-    );
-    if (kilos == null) return;
-    await db.registrarPeso(
-      animalId: animalId,
-      kilos: kilos,
-      fecha: hoyAaaammdd(),
-    );
-  }
-
-  Future<void> _mover(BuildContext context) async {
-    final ubicaciones = await db.verUbicaciones().first;
+  /// Apuntar lo que se le hizo hoy.
+  ///
+  /// Peso, bano, desparasitada, lo que sea, y de paso cambiarlo de lugar. Todo
+  /// queda como apunte con su fecha: **nada se sobrescribe**.
+  Future<void> _manejo(BuildContext context) async {
+    final lugares = await db.verUbicaciones().first;
     if (!context.mounted) return;
 
-    final destino = await showDialog<String>(
-      context: context,
-      builder: (_) => SimpleDialog(
-        title: const Text('Mover a'),
-        children: [
-          for (final u in ubicaciones)
-            if (u.id != datos.ubicacionId)
-              SimpleDialogOption(
-                onPressed: () => Navigator.pop(context, u.id),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  child: Text(u.nombre, style: const TextStyle(fontSize: 20)),
-                ),
-              ),
-        ],
-      ),
+    final apunte = await registrarManejo(
+      context,
+      titulo: datos.titulo,
+      lugares: lugares,
+      lugarActualId: datos.ubicacionId,
     );
-    if (destino == null) return;
+    if (apunte == null) return;
 
-    await db.registrarMovimiento(
-      animalId: animalId,
-      ubicacionDestinoId: destino,
-      ubicacionOrigenId: datos.ubicacionId,
-      fecha: hoyAaaammdd(),
-    );
+    final hoy = hoyAaaammdd();
+
+    if (apunte.pesoKg != null) {
+      await db.registrarPeso(
+        animalId: animalId,
+        kilos: apunte.pesoKg!,
+        fecha: hoy,
+      );
+    }
+
+    if (apunte.banado || apunte.desparasitado || apunte.otro != null) {
+      await db.registrarManejo(
+        animalId: animalId,
+        fecha: hoy,
+        banado: apunte.banado,
+        desparasitado: apunte.desparasitado,
+        otro: apunte.otro,
+      );
+    }
+
+    if (apunte.nuevoLugarId != null) {
+      await db.registrarMovimiento(
+        animalId: animalId,
+        ubicacionDestinoId: apunte.nuevoLugarId!,
+        ubicacionOrigenId: datos.ubicacionId,
+        fecha: hoy,
+      );
+    }
   }
+
 }
 
 class _Historial extends StatelessWidget {
@@ -411,51 +408,4 @@ class _Historial extends StatelessWidget {
         'correccionCategoria' => 'Categoría corregida a mano',
         _ => tipo,
       };
-}
-
-class _DialogoPeso extends StatefulWidget {
-  const _DialogoPeso();
-
-  @override
-  State<_DialogoPeso> createState() => _DialogoPesoState();
-}
-
-class _DialogoPesoState extends State<_DialogoPeso> {
-  final _kilos = TextEditingController();
-
-  @override
-  void dispose() {
-    _kilos.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Peso en kilos'),
-      content: TextField(
-        controller: _kilos,
-        autofocus: true,
-        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w800),
-        decoration: const InputDecoration(
-          border: OutlineInputBorder(),
-          suffixText: 'kg',
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancelar', style: TextStyle(fontSize: 18)),
-        ),
-        TextButton(
-          onPressed: () {
-            final v = double.tryParse(_kilos.text.trim());
-            if (v != null && v > 0) Navigator.pop(context, v);
-          },
-          child: const Text('Guardar', style: TextStyle(fontSize: 18)),
-        ),
-      ],
-    );
-  }
 }
