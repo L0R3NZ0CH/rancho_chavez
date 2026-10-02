@@ -2,10 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../domain/modelos/tipos.dart';
+import 'fotos.dart';
 import 'tema.dart';
 
 /// Lo que se captura de un animal con el vendedor esperando su dinero.
-typedef CapturaRapida = ({double? pesoKg, Categoria categoria, String? sena});
+typedef CapturaRapida = ({
+  double? pesoKg,
+  Categoria categoria,
+  String? sena,
+  String? rutaFoto,
+});
 
 /// Peso y categoría, en dos toques.
 ///
@@ -21,6 +27,11 @@ typedef CapturaRapida = ({double? pesoKg, Categoria categoria, String? sena});
 ///     equivocado.
 ///   - Picar la categoría **es** el guardar. No hay botón de aceptar aparte.
 ///   - El sexo no se pregunta: sale de la categoría.
+///   - La foto es **un botón, no un paso**. Si hay prisa se ignora y no cuesta
+///     nada; si no la hay, queda registrada de una vez. Obligar a tomarla
+///     convertiría una recogida de veinte en veinte interrupciones, porque una
+///     foto no es un toque: es encuadrar, esperar a que el animal se quede
+///     quieto y ver si salió.
 Future<CapturaRapida?> capturaRapida(
   BuildContext context, {
   required String titulo,
@@ -69,6 +80,7 @@ class _DialogoCapturaState extends State<_DialogoCaptura> {
           : widget.pesoInicial!.toStringAsFixed(0).length,
     );
   final _sena = TextEditingController();
+  String? _rutaFoto;
   late bool _abiertas = widget.categoriaInicial != null &&
       Categoria.otras.contains(widget.categoriaInicial);
 
@@ -84,7 +96,14 @@ class _DialogoCapturaState extends State<_DialogoCaptura> {
       pesoKg: double.tryParse(_peso.text.trim().replaceAll(',', '.')),
       categoria: categoria,
       sena: _sena.text.trim().isEmpty ? null : _sena.text.trim(),
+      rutaFoto: _rutaFoto,
     ));
+  }
+
+  Future<void> _foto() async {
+    final ruta = await tomarFoto();
+    if (ruta == null || !mounted) return;
+    setState(() => _rutaFoto = ruta);
   }
 
   @override
@@ -126,6 +145,35 @@ class _DialogoCapturaState extends State<_DialogoCaptura> {
                 ),
               ),
             ],
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 56,
+              child: OutlinedButton.icon(
+                onPressed: _foto,
+                icon: Icon(
+                  _rutaFoto == null ? Icons.photo_camera : Icons.check_circle,
+                  size: 24,
+                ),
+                label: Text(
+                  _rutaFoto == null ? 'TOMARLE FOTO' : 'FOTO TOMADA',
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor:
+                      _rutaFoto == null ? Paleta.textoSuave : Paleta.accion,
+                  side: BorderSide(
+                    color: _rutaFoto == null ? Paleta.borde : Paleta.accion,
+                    width: 2,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
             const SizedBox(height: 16),
             for (final c in Categoria.principales) ...[
               _BotonCategoria(

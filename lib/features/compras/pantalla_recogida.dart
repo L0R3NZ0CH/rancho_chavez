@@ -119,6 +119,13 @@ class _PantallaRecogidaState extends State<PantallaRecogida> {
       );
     }
 
+    if (captura.rutaFoto != null) {
+      await widget.db.agregarFoto(
+        animalId: animalId,
+        rutaRelativa: captura.rutaFoto!,
+      );
+    }
+
     if (captura.pesoKg != null) {
       await widget.db.registrarPeso(
         animalId: animalId,

@@ -10,6 +10,7 @@ import '../../data/repos/historial.dart';
 import '../../domain/modelos/tipos.dart';
 import '../../domain/reglas/estado_animal.dart';
 import '../escaneo/pantalla_escaneo.dart';
+import 'galeria_animal.dart';
 import '../manejo/dialogo_manejo.dart';
 
 /// La ficha de un animal.
@@ -64,6 +65,11 @@ class PantallaFicha extends StatelessWidget {
             child: ListView(
               padding: const EdgeInsets.all(16),
               children: [
+                GaleriaAnimal(
+                  db: db,
+                  animalId: animalId,
+                  puedeEditar: !datos.deBaja,
+                ),
                 _Encabezado(datos: datos, hoy: hoy),
                 const SizedBox(height: 20),
                 _Acciones(db: db, animalId: animalId, datos: datos),

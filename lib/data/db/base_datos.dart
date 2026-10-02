@@ -1297,6 +1297,101 @@ class BaseDatos extends _$BaseDatos {
     });
   }
 
+  // -------------------------------------------------------------------------
+  // Fotos
+  // -------------------------------------------------------------------------
+
+  /// Guarda una foto de un animal.
+  ///
+  /// La primera queda como principal sola: es la que se va a ver en grande. Las
+  /// siguientes se apilan y el dueno elige cual manda.
+  Future<String> agregarFoto({
+    required String animalId,
+    required String rutaRelativa,
+  }) async {
+    final s = await _sello();
+    final yaTiene = (await fotosDe(animalId)).isNotEmpty;
+
+    await into(fotos).insert(
+      FotosCompanion.insert(
+        id: s.id,
+        creadoEn: s.ahora,
+        modificadoEn: s.ahora,
+        dispositivoId: s.dispositivo,
+        animalId: animalId,
+        rutaRelativa: rutaRelativa,
+        esPrincipal: Value(!yaTiene),
+        tomadaEn: s.ahora,
+      ),
+    );
+    return s.id;
+  }
+
+  Future<List<Foto>> fotosDe(String animalId) => (select(fotos)
+        ..where((f) => f.animalId.equals(animalId) & f.eliminadoEn.isNull())
+        ..orderBy([
+          (f) => OrderingTerm(expression: f.esPrincipal, mode: OrderingMode.desc),
+          (f) => OrderingTerm(expression: f.tomadaEn, mode: OrderingMode.desc),
+        ]))
+      .get();
+
+  Stream<List<Foto>> verFotos(String animalId) => (select(fotos)
+        ..where((f) => f.animalId.equals(animalId) & f.eliminadoEn.isNull())
+        ..orderBy([
+          (f) => OrderingTerm(expression: f.esPrincipal, mode: OrderingMode.desc),
+          (f) => OrderingTerm(expression: f.tomadaEn, mode: OrderingMode.desc),
+        ]))
+      .watch();
+
+  Future<Foto?> fotoPrincipal(String animalId) async =>
+      (await fotosDe(animalId)).firstOrNull;
+
+  /// Elige cual es la que se ve en grande. Solo puede haber una.
+  Future<void> marcarFotoPrincipal({
+    required String animalId,
+    required String fotoId,
+  }) async {
+    final ahora = ahoraUtcMs();
+    await transaction(() async {
+      await (update(fotos)..where((f) => f.animalId.equals(animalId))).write(
+        FotosCompanion(esPrincipal: const Value(false), modificadoEn: Value(ahora)),
+      );
+      await (update(fotos)..where((f) => f.id.equals(fotoId))).write(
+        FotosCompanion(esPrincipal: const Value(true), modificadoEn: Value(ahora)),
+      );
+    });
+  }
+
+  /// Borrado logico de una foto (regla 3).
+  ///
+  /// Si era la principal, la mas reciente de las que queden toma su lugar: un
+  /// animal no se puede quedar con fotos pero sin ninguna principal.
+  Future<void> eliminarFoto({
+    required String animalId,
+    required String fotoId,
+  }) async {
+    final ahora = ahoraUtcMs();
+    await transaction(() async {
+      await (update(fotos)..where((f) => f.id.equals(fotoId))).write(
+        FotosCompanion(
+          eliminadoEn: Value(ahora),
+          esPrincipal: const Value(false),
+          modificadoEn: Value(ahora),
+        ),
+      );
+
+      final quedan = await fotosDe(animalId);
+      if (quedan.isNotEmpty && !quedan.any((f) => f.esPrincipal)) {
+        await (update(fotos)..where((f) => f.id.equals(quedan.first.id))).write(
+          FotosCompanion(
+            esPrincipal: const Value(true),
+            modificadoEn: Value(ahora),
+          ),
+        );
+      }
+    });
+  }
+
   /// Borrado logico (regla 3). El renglon se queda; solo se marca la fecha.
   Future<void> eliminarAnimal(String id) async {
     final ahora = ahoraUtcMs();

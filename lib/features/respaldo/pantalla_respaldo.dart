@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../comun/fotos.dart';
 import '../../comun/tema.dart';
 import '../../data/db/base_datos.dart';
 import '../../data/respaldo.dart';
@@ -46,6 +47,7 @@ class PantallaRespaldo extends StatefulWidget {
 
 class _PantallaRespaldoState extends State<PantallaRespaldo> {
   int _animales = 0;
+  int _bytesFotos = 0;
   String? _ultimo;
   bool _trabajando = false;
   String? _error;
@@ -59,10 +61,12 @@ class _PantallaRespaldoState extends State<PantallaRespaldo> {
   Future<void> _cargar() async {
     final animales = await animalesSinRespaldar(widget.db);
     final ultimo = await fechaUltimoRespaldo(widget.db);
+    final bytes = await bytesDeLasFotos();
     if (!mounted) return;
     setState(() {
       _animales = animales;
       _ultimo = ultimo;
+      _bytesFotos = bytes;
     });
   }
 
@@ -278,6 +282,27 @@ class _PantallaRespaldoState extends State<PantallaRespaldo> {
                   textAlign: TextAlign.center,
                   style: const TextStyle(fontSize: 17),
                 ),
+                // El peso de las fotos a la vista: cada foto engorda el ZIP, y
+                // un respaldo que ya no se puede mandar es un respaldo que no
+                // existe. Que la decision de guardar muchas se tome viendo el
+                // costo, no el dia que el archivo ya no quepa.
+                if (_bytesFotos > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      'Las fotos pesan ${pesoEnPalabras(_bytesFotos)}',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: _bytesFotos > 100 * 1024 * 1024
+                            ? Paleta.aviso
+                            : Paleta.textoSuave,
+                        fontWeight: _bytesFotos > 100 * 1024 * 1024
+                            ? FontWeight.w700
+                            : FontWeight.w400,
+                      ),
+                    ),
+                  ),
                 const SizedBox(height: 20),
                 const Text(
                   'Todo el ganado vive en este teléfono. Si se moja, se rompe o '
